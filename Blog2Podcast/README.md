@@ -22,7 +22,8 @@ In this tutorial, you'll build an end-to-end pipeline that:
 Install the necessary dependencies:
 
 ```bash
-pip install streamlit python-dotenv firecrawl elevenlabs langchain langchain_groq
+uv venv .venv
+uv pip install -e .
 ```
 
 ---
