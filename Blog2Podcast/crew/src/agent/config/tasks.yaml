@@ -1,0 +1,12 @@
+analyze_blog:
+  description: >
+    Analyze the provided blog content and generate a detailed, 
+    well-organized podcast script based on the blog.
+    Focus on breaking down the blog content into manageable segments, 
+    making sure to document each segment thoroughly with clear transitions and engaging narrative elements.
+    and any other relevant details.
+
+    Here is the blog content for your reference:\n\n {blog_content}
+  expected_output: >
+    A detailed podcast script with clear transitions and engaging narrative elements.
+  agent: blog2podcast

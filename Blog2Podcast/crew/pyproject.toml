@@ -1,0 +1,32 @@
+[project]
+name = "blog-2-podcast"
+version = "0.1.0"
+description = "Simple agent to convert blog to podcast"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "groq>=0.34.1",
+    "loguru>=0.7.3",
+    "openai>=2.8.0",
+    "opik>=1.9.40",
+    "pydantic>=2.11.10",
+    "pydantic-settings>=2.12.0",
+    "pytz>=2025.2",
+    "streamlit>=1.54.0",
+    "firecrawl>=4.16.0",
+    "elevenlabs>=2.36.0",
+    "crewai[tools]>=0.152.0",
+    "langchain-groq>=1.0.1",
+]
+
+[project.scripts]
+kickoff = "meeting_assistant_flow.main:kickoff"
+plot = "meeting_assistant_flow.main:plot"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
