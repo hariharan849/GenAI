@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 
 from airflow import DAG
-from airflow.operators.bash import BashOperator
-from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.python import PythonOperator
 from arxiv_ingestion.fetching import fetch_daily_papers
 from arxiv_ingestion.indexing import index_papers_hybrid, verify_hybrid_index
 from arxiv_ingestion.reporting import generate_daily_report
@@ -31,6 +31,7 @@ dag = DAG(
     max_active_runs=1,
     catchup=False,
     tags=["arxiv", "papers", "ingestion", "hybrid-search", "embeddings", "chunks"],
+    params={"target_date": ""},  # Override date on manual trigger (YYYYMMDD, e.g. "20260528")
 )
 
 # Task definitions
