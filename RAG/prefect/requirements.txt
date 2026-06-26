@@ -1,0 +1,7 @@
+# Core project deps are installed from pyproject.toml via `uv pip install --system .`
+# (see prefect/Dockerfile). Only Prefect itself is listed here.
+#
+# IMPORTANT: Pin to the same minor version as the prefect-server image.
+# Find the version: docker run --rm prefecthq/prefect:3-python3.13 prefect version
+# Then replace the constraint below with: prefect==<exact-version>
+prefect>=3.0,<4

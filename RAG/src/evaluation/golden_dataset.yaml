@@ -1,0 +1,168 @@
+# Golden dataset for the DeepEval RAG evaluation harness.
+#
+# Each case is pinned to a specific arxiv_id already indexed in OpenSearch
+# (verified live against the arxiv-papers-chunks index) so that before/after
+# diffs reflect code/prompt changes, not daily ingestion drift.
+#
+# expected_retrieval_context is optional: when absent, ContextualPrecisionMetric
+# (which needs ground-truth context) is skipped for that case rather than failed.
+# faithfulness/answer_relevancy/contextual_relevancy don't need it.
+
+cases:
+  - case_id: divskill_sql_problem
+    arxiv_id: "2605.21792v1"
+    question: "What is DivSkill-SQL and what problem does it address in Text-to-SQL ensembles?"
+    expected_output: >
+      DivSkill-SQL is a residual skill optimization framework for building complementary
+      agentic Text-to-SQL ensembles without model fine-tuning. It addresses the problem
+      that existing ensemble methods source diversity heuristically (via stochastic
+      decoding or prompt variants), leaving candidate sets dominated by correlated
+      failures; DivSkill-SQL instead optimizes each new skill on examples the current
+      ensemble fails on, directly targeting its marginal contribution to Pass@K.
+
+  - case_id: divskill_sql_results
+    arxiv_id: "2605.21792v1"
+    question: "What performance gains does DivSkill-SQL report on Spider2-Lite, and what do the error diagnostics attribute them to?"
+    expected_output: >
+      On Spider2-Lite, DivSkill-SQL improves selected accuracy by up to +11.1 points on
+      Snowflake and +8.3 points on BigQuery over the strongest ensemble baseline, with
+      consistent gains across two base models. Error diagnostics show up to 3x fewer
+      hallucinated schema references and function calls, indicating the gains come from
+      genuinely reliable complementary skills rather than surface-form variation.
+
+  - case_id: divskill_sql_transfer
+    arxiv_id: "2605.21792v1"
+    question: "Does DivSkill-SQL's skill optimization transfer across SQL dialects?"
+    expected_output: >
+      Yes. Skills optimized on a single dialect transfer without retraining across
+      dialects (Snowflake, BigQuery, SQLite) and to a different task formulation such as
+      BIRD-Critic, where it gains +2.6 points.
+
+  - case_id: trace2skill_challenge
+    arxiv_id: "2605.21810v1"
+    question: "What challenge does Trace2Skill address for hardware LLM agents working on Complex Verilog Design Problems (CVDP)?"
+    expected_output: >
+      Trace2Skill addresses the challenge that solving CVDP tasks requires localizing
+      verifier-relevant RTL, testbenches, include paths, and build dependencies inside
+      large repository snapshots, making precise edits, and recovering from sparse
+      hidden-verifier failures — without relying on RTL-specialized model fine-tuning.
+
+  - case_id: trace2skill_method
+    arxiv_id: "2605.21810v1"
+    question: "How does Trace2Skill improve a hardware agent without fine-tuning the underlying model?"
+    expected_output: >
+      Trace2Skill treats the agent's natural-language skill as an evolvable policy: it
+      mines repeated rollout traces for success and failure modes, converts them into
+      dense diagnostics and oracle lessons, and uses an oracle, mutator, and selector
+      loop to produce task-specific skills that guide later search, editing, validation,
+      and recovery. It also supports bounded runtime dense verifier feedback that
+      returns sanitized functional observations while keeping hidden harnesses and
+      reference solutions inaccessible to the agent.
+
+  - case_id: vague_intensity_question
+    arxiv_id: "2605.21827v1"
+    question: "What research question does the paper on vague intensity words investigate, and what method is used?"
+    expected_output: >
+      It investigates whether language models preserve the ordinal meaning of intensity
+      words (from "slightly" to "drastically") when those words must produce numeric
+      actions. The method uses a controlled resource-allocation environment where Claude
+      Haiku receives a natural-language instruction containing an intensity word,
+      produces a numeric allocation, and a deterministic backend converts that
+      allocation into a measurable outcome, isolating the effect of the intensity word.
+
+  - case_id: vague_intensity_findings
+    arxiv_id: "2605.21827v1"
+    question: "What did the study find about how the model maps the 10 intensity words to numeric outputs?"
+    expected_output: >
+      The model compresses the 10 intensity words into only 5 distinct median outputs —
+      four lower-tier words all map to the same value while stronger words break into
+      higher regimes (Spearman rho = 0.845). The current system state explains far more
+      of the rank-based variance than the word itself, and near feasibility limits the
+      model shows three behavioral modes: weak words hedge with small adjustments,
+      strong words abstain entirely, and "drastically" pushes to the local ceiling.
+
+  - case_id: pearl_problem
+    arxiv_id: "2605.21752v1"
+    question: "What problem does PEARL aim to solve in recommender systems?"
+    expected_output: >
+      PEARL addresses behavioral intensity imbalance — a systematic distortion where
+      heterogeneous engagement patterns across users skew feedback signals, causing
+      models to disproportionately amplify signals from highly active users while
+      underrepresenting others, which degrades recommendation quality and robustness at
+      scale.
+
+  - case_id: pearl_approach
+    arxiv_id: "2605.21752v1"
+    question: "How does PEARL's approach differ from estimating absolute engagement magnitudes?"
+    expected_output: >
+      PEARL models relative preference signals instead of absolute engagement
+      magnitudes, using a nonparametric contrastive percentile approximation framework
+      that leverages real contrastive interaction samples to approximate percentile
+      relationships directly, without relying on auxiliary distribution estimation
+      models. It is built on relative advantage debiasing and provides theoretical
+      justification that pairwise comparisons yield unbiased estimates of
+      percentile-based preference signals.
+
+  - case_id: pearl_extensions
+    arxiv_id: "2605.21752v1"
+    question: "What does PEARL's co-training strategy and value-weighted formulation aim to improve?"
+    expected_output: >
+      They aim to enhance both modeling flexibility and representation learning,
+      alongside a prediction-based bootstrapping mechanism for percentile smoothing that
+      handles sparse and discrete feedback.
+
+  - case_id: vis_coscientist_overview
+    arxiv_id: "2605.21825v1"
+    question: "What does the AI VIS Co-Scientist system do, given only data and a task description?"
+    expected_output: >
+      Given only the data and a high-level description of the tasks, it independently
+      designs custom visual analysis applications (VIS apps) — an end-to-end agentic
+      harness using a collection of agents and specialized skills that coordinate
+      exploratory analysis, planning, environment configuration, implementation,
+      interface validation, and evaluation of overall task completion.
+
+  - case_id: vis_coscientist_validation
+    arxiv_id: "2605.21825v1"
+    question: "How was the AI VIS Co-Scientist system validated, and why are these a good test of the approach?"
+    expected_output: >
+      It was validated on IEEE SciVis Contests spanning multiple science and engineering
+      fields. These contests are good proving grounds because they encode real-world
+      complexity: ambiguous requirements, diverse data modalities, design trade-offs,
+      and task-driven validation.
+
+  - case_id: causal_argumentation_gap
+    arxiv_id: "2605.21758v1"
+    question: "What limitation of standard XAI methods does the causal argumentation paper address?"
+    expected_output: >
+      Standard XAI methods identify which features are relevant to a model's
+      predictions but often fail to clarify why certain decisions are made. This paper
+      integrates causality with argument-based reasoning to explain why models may be
+      making predictions.
+
+  - case_id: causal_argumentation_method
+    arxiv_id: "2605.21758v1"
+    question: "How does the causal argumentation method construct its explanations, technically?"
+    expected_output: >
+      It first identifies causal relationships among variables using causal discovery
+      methods, then translates these into a Bipolar Argumentation Framework (BAF)
+      representing supportive and opposing interactions among features. Using
+      semi-stable semantics, it finds extensions of features that explain why certain
+      outcomes may have been chosen.
+
+  - case_id: pediatric_decision_tech_trust
+    arxiv_id: "2605.21777v1"
+    question: "What technologies were studied in the pediatric collaborative decision-making paper, and what was the key finding about trust?"
+    expected_output: >
+      The study examined patients', caregivers', and clinicians' perceptions of
+      collaborative decision-making technologies, including interactive dashboards, VR
+      simulators, and AI voice assistants. It found that technology acceptance is linked
+      to users' trust of these technologies, and that differences in opinion exist
+      across the three groups.
+
+  - case_id: pediatric_decision_recommendation
+    arxiv_id: "2605.21777v1"
+    question: "What does the pediatric decision-making paper recommend technology developers do before these tools can effectively support collaborative decision-making?"
+    expected_output: >
+      It recommends that technology developers and researchers explore design and
+      implementation strategies that build and facilitate trust — or appropriate
+      distrust — between users and these novel technologies.

@@ -18,18 +18,12 @@ stream_router = APIRouter(tags=["stream"])
 
 
 def _extract_sources(hits: list[dict]) -> tuple[list[str], list[str]]:
-    arxiv_ids: list[str] = []
     sources: set[str] = set()
     for hit in hits:
-        nuke_url = hit.get("url", "")
-        arxiv_id = hit.get("arxiv_id", "")
-        if nuke_url:
-            sources.add(nuke_url)
-        elif arxiv_id:
-            arxiv_ids.append(arxiv_id)
-            arxiv_id_clean = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
-            sources.add(f"https://arxiv.org/pdf/{arxiv_id_clean}.pdf")
-    return arxiv_ids, list(sources)
+        url = hit.get("url", "")
+        if url:
+            sources.add(url)
+    return [], list(sources)
 
 
 async def _prepare_chunks_and_sources(
@@ -67,7 +61,7 @@ async def _prepare_chunks_and_sources(
             categories=request.categories,
             use_hybrid=request.use_hybrid and query_embedding is not None,
             min_score=0.0,
-            knowledge_source=getattr(request, "knowledge_source", "arxiv"),
+            knowledge_source=getattr(request, "knowledge_source", "nuke"),
         )
         SEARCH_LATENCY.labels(search_mode=_search_mode).observe(time.perf_counter() - _t0)
 
@@ -75,18 +69,17 @@ async def _prepare_chunks_and_sources(
         hits = search_results.get("hits", [])
         chunks = [
             {
-                "arxiv_id": hit.get("arxiv_id", ""),
-                "chunk_text": hit.get("chunk_text", hit.get("abstract", "")),
+                "chunk_text": hit.get("chunk_text", ""),
             }
             for hit in hits
         ]
-        arxiv_ids, sources_list = _extract_sources(hits)
+        _, sources_list = _extract_sources(hits)
 
         SEARCH_RESULTS_COUNT.labels(search_mode=_search_mode).observe(len(chunks))
         # End search span with essential metadata
-        rag_tracer.end_search(search_span, chunks, arxiv_ids, search_results.get("total", 0))
+        rag_tracer.end_search(search_span, chunks, [], search_results.get("total", 0))
 
-    return chunks, sources_list, arxiv_ids
+    return chunks, sources_list, []
 
 
 @ask_router.post("/ask", response_model=AskResponse)

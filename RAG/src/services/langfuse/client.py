@@ -446,3 +446,18 @@ class LangfuseTracer:
             span.end()
         except Exception as e:
             logger.error(f"Error updating span: {e}")
+
+    def end_span(
+        self,
+        span,
+        output: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        level: Optional[str] = None,
+        status_message: Optional[str] = None,
+    ):
+        """Finalize a span created by create_span(), attaching final output/metadata.
+
+        Alias kept distinct from update_span() so node code can express intent
+        ("this span is done") even though the underlying behavior is identical.
+        """
+        self.update_span(span, output=output, metadata=metadata, level=level, status_message=status_message)

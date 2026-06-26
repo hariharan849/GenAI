@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-An AI-powered arXiv paper curator with agentic RAG capabilities. It:
-1. Runs a daily Airflow pipeline to fetch, parse, chunk, embed, and index arXiv CS.AI papers
-2. Exposes a FastAPI REST API for hybrid semantic+keyword search and question answering
+A Nuke documentation RAG system with agentic RAG capabilities. It:
+1. Runs an Airflow pipeline (manual trigger) to scrape, chunk, embed, and index Foundry Nuke 17.0 reference guide pages
+2. Exposes a FastAPI REST API for hybrid semantic+keyword search and question answering over Nuke docs
 3. Provides an agentic RAG endpoint backed by a LangGraph workflow with guardrails, document grading, and query rewriting
-4. Uses Jina AI embeddings (1024-dim), OpenSearch for hybrid search (BM25 + vector RRF), Ollama for local LLM inference, Redis for caching, PostgreSQL for paper metadata, and Langfuse for observability
+4. Uses Jina AI embeddings (1024-dim), OpenSearch for hybrid search (BM25 + vector RRF), Ollama for local LLM inference, Redis for caching, PostgreSQL for page metadata, and Langfuse for observability
 
 ## Development Environment
 
@@ -21,16 +21,37 @@ uv sync
 # Run the FastAPI server locally
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Run all services via Docker Compose
+# Run shared infrastructure only (OpenSearch, PostgreSQL, Redis, Langfuse, monitoring)
 docker compose up -d
+
+# Run with Airflow orchestrator (UI at localhost:8081)
+docker compose --profile airflow up -d
+
+# Run with Prefect orchestrator (UI at localhost:4200)
+docker compose --profile prefect up -d
+# Single-env-var equivalent:
+COMPOSE_PROFILES=prefect docker compose up -d
+
+# Run with Dagster orchestrator (UI at localhost:3002)
+docker compose --profile dagster up -d
+
+# Build the Prefect worker image
+docker compose build prefect-worker
+
+# Build the Dagster image (all three services share one Dockerfile)
+docker compose --profile dagster build
 
 # Build the application image only
 docker compose build rag-api
 ```
 
-**Airflow** runs on CeleryExecutor. Access the UI at `http://localhost:8081`. DAG: `arxiv_paper_ingestion` runs Mon–Fri at 06:00 UTC.
+**Note on orchestrator profiles**: Bare `docker compose up -d` starts shared infrastructure only (no Airflow, no Prefect, no Dagster). Use `--profile airflow`, `--profile prefect`, or `--profile dagster` explicitly to bring up an orchestrator.
 
-**Service ports**: FastAPI: 8000 | Airflow: 8081 | OpenSearch: 9200 | OpenSearch Dashboards: 5601 | Langfuse: 3001 | PostgreSQL: 5436
+**Airflow** runs on CeleryExecutor. Access the UI at `http://localhost:8081`. DAG: `nuke_docs_ingestion` is manually triggered (no schedule).
+
+**Dagster** runs three containers (user-code gRPC server, webserver, daemon). Access the asset lineage UI at `http://localhost:3002`.
+
+**Service ports**: FastAPI: 8000 | Airflow: 8081 | Prefect: 4200 | Dagster: 3002 | OpenSearch: 9200 | OpenSearch Dashboards: 5601 | Langfuse: 3001 | PostgreSQL: 5436
 
 ## Architecture
 
@@ -52,16 +73,16 @@ Client
 |-------|----------|---------|
 | Routers | `src/routers/` | HTTP endpoints, request validation, response formatting |
 | Services | `src/services/` | Business logic, external client wrappers |
-| Repositories | `src/repositories/` | SQLAlchemy data access (only `paper.py` exists) |
+| Repositories | `src/repositories/` | SQLAlchemy data access (`nuke_page.py`) |
 | Models | `src/models/` | SQLAlchemy ORM models |
 | Schemas | `src/schemas/` | Pydantic request/response models |
 | DB | `src/db/` | SQLAlchemy engine/session factory, abstract base classes |
 | Agents | `src/services/agents/` | LangGraph agentic RAG (state, nodes, tools, prompts) |
-| Airflow DAGs | `airflow/dags/` | Paper ingestion pipeline |
+| Airflow DAGs | `airflow/dags/` | Nuke docs ingestion pipeline |
 
 ### Service Initialization
 
-All services are initialized in `src/main.py` lifespan with strict ordering: database → OpenSearch → arXiv → PDF parser → Jina embeddings → Ollama → Langfuse → Redis → Telegram. Services are injected via FastAPI `Depends` through `src/dependencies.py`.
+All services are initialized in `src/main.py` lifespan with strict ordering: database → OpenSearch → Jina embeddings → Ollama → Langfuse → Redis → Telegram. Services are injected via FastAPI `Depends` through `src/dependencies.py`.
 
 ### Agentic RAG Workflow (LangGraph)
 
@@ -77,31 +98,31 @@ Nodes use `context.py` for dependency injection rather than closures.
 
 ### Ingestion Pipeline (Airflow)
 
-`airflow/dags/arxiv_paper_ingestion.py` — linear DAG:
-`setup → fetch_daily_papers → index_papers_hybrid → generate_daily_report → cleanup_temp_files`
+`airflow/dags/nuke_docs_ingestion.py` — linear DAG (manual trigger):
+`setup → scrape_nuke_docs → save_nuke_pages_to_db → index_nuke_docs → generate_nuke_report → cleanup_temp_files`
 
-- `fetching.py`: arXiv API → download PDFs → Docling parse → PostgreSQL upsert
-- `indexing.py`: PostgreSQL → chunk (600 words / 100 overlap) → Jina embed → OpenSearch bulk index
+- `scraping.py`: Crawls Foundry Nuke 17.0 reference guide → extracts node pages → writes JSON via XCom
+- `save.py`: Loads scraped JSON → upserts pages to PostgreSQL via `NukePageRepository`
+- `indexing.py`: PostgreSQL → chunk (600 chars / 100 overlap) → Jina embed → OpenSearch bulk index to `nuke-docs-chunks`
 
 ### Configuration
 
-`src/config.py` uses nested Pydantic `BaseSettings`. All values come from environment variables (`.env` file at root). Key nested configs: `ArxivSettings`, `PDFParserSettings`, `ChunkingSettings`, `OpenSearchSettings`, `LangfuseSettings`, `RedisSettings`, `TelegramSettings`.
+`src/config.py` uses nested Pydantic `BaseSettings`. All values come from environment variables (`.env` file at root). Key nested configs: `ChunkingSettings`, `OpenSearchSettings`, `LangfuseSettings`, `RedisSettings`, `TelegramSettings`.
 
 ## Core Technology Choices
 
-- **Chunking**: 600-word chunks, 100-word overlap. Section-based when available, falls back to word-based.
+- **Chunking**: 600-char chunks, 100-char overlap, 50-char minimum. Text-based (Nuke pages are scraped HTML, not PDFs).
 - **Embeddings**: Jina AI v3 (`retrieval.passage` for docs, `retrieval.query` for queries), 1024 dimensions, batched at 100 texts per API call.
-- **Search**: OpenSearch RRF pipeline combining BM25 and k-NN vector search. Index: `arxiv-papers-chunks`.
+- **Search**: OpenSearch RRF pipeline combining BM25 and k-NN vector search. Index: `nuke-docs-chunks`.
 - **LLM**: Ollama `llama3.2:1b` (local). Prompts live in `src/services/agents/prompts.py` (agentic) and `src/services/ollama/prompts.py` (simple RAG).
-- **PDF parsing**: Docling only (no fallback parsers). CPU-bound, wrapped in `asyncio.to_thread`.
 - **Tracing**: Langfuse v3. All LangChain/LangGraph calls traced automatically via `CallbackHandler`. Manual spans added for Ollama calls.
 - **Caching**: Redis exact-match cache. Key = SHA256 of `(query, model, top_k, use_hybrid, categories)`. TTL: 6 hours.
 
 ## Data Models
 
-**PostgreSQL `papers` table** (`src/models/paper.py`): `arxiv_id` is the natural key (unique, indexed). `sections` and `authors` are stored as JSON. `pdf_processed` boolean tracks ingestion state.
+**PostgreSQL `nuke_pages` table** (`src/models/nuke_page.py`): stores scraped Nuke documentation pages with fields `node_name`, `section`, `url`, `content`, and an `indexed` boolean tracking ingestion state.
 
-**OpenSearch index** `arxiv-papers-chunks`: Each document is a chunk with denormalized paper metadata (`arxiv_id`, `title`, `authors`, etc.) plus `chunk_text` (text field for BM25) and `embedding` (knn_vector, 1024-dim).
+**OpenSearch index** `nuke-docs-chunks`: Each document is a chunk with `node_name`, `section`, `url`, `chunk_text` (text field for BM25), and `embedding` (knn_vector, 1024-dim).
 
 ## Skill routing
 

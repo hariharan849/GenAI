@@ -1,33 +1,176 @@
-from typing import ClassVar
 from pathlib import Path
-from pydantic import BaseModel, Field, AliasChoices
+from typing import List, Literal, Optional
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-class GroqSettings(BaseModel):
-    api_key: str = Field(default="", description="Groq API Key")
-    model: str = Field(default="llama-3.3-70b-versatile", description="The Groq model to use for processing.")
-    temperature: float = Field(default=0.2, description="The temperature setting for the Groq model, controlling creativity.")
-    max_tokens: int = Field(default=1000, description="The maximum number of tokens to generate in the response.")
+PROJECT_ROOT = Path(__file__).parent.parent
+ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
 
-class LangfuseSettings(BaseModel):
-    secret_key: str = Field(default="", description="Langfuse Secret Key")
-    public_key: str = Field(default="", description="Langfuse Public Key")
-    base_url: str = Field(default="https://cloud.langfuse.com", description="Langfuse base URL")
-    project_name: str = Field(default="agentic-rag", description="Langfuse project name")
-
-class Settings(BaseSettings):
-    groq: GroqSettings = Field(default_factory=GroqSettings)
-    langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
-
-    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
-        env_file=[str(Path(__file__).resolve().parents[1] / ".env")],
-        env_file_encoding="utf-8",
+class BaseConfigSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
         extra="ignore",
+        frozen=True,
         env_nested_delimiter="__",
         case_sensitive=False,
-        frozen=True,
     )
 
-settings = Settings()
+
+class ChunkingSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="CHUNKING__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    chunk_size: int = 600  # Target words per chunk
+    overlap_size: int = 100  # Words to overlap between chunks
+    min_chunk_size: int = 100  # Minimum words for a valid chunk
+    section_based: bool = True  # Use section-based chunking when available
+
+
+class OpenSearchSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="OPENSEARCH__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    host: str = "http://localhost:9200"
+    index_name: str = "nuke-docs"
+    chunk_index_suffix: str = "chunks"  # Creates single hybrid index: {index_name}-{suffix}
+    max_text_size: int = 1000000
+
+    # Vector search settings
+    vector_dimension: int = 1024  # Jina embeddings dimension
+    vector_space_type: str = "cosinesimil"  # cosinesimil, l2, innerproduct
+
+    # Hybrid search settings
+    rrf_pipeline_name: str = "hybrid-rrf-pipeline"
+    hybrid_search_size_multiplier: int = 2  # Get k*multiplier for better recall
+
+
+class LangfuseSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="LANGFUSE__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    public_key: str = ""
+    secret_key: str = ""
+    host: str = "http://localhost:3000"  # Self-hosted Langfuse URL
+    enabled: bool = True
+    flush_at: int = 15  # Number of events before flushing
+    flush_interval: float = 1.0  # Seconds between flushes
+    max_retries: int = 3
+    timeout: int = 30
+    debug: bool = False
+
+
+class RedisSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="REDIS__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    host: str = "localhost"
+    port: int = 6379
+    password: str = ""
+    db: int = 0
+    decode_responses: bool = True
+    socket_timeout: int = 30
+    socket_connect_timeout: int = 30
+
+    # Cache settings
+    ttl_hours: int = 6  # Cache TTL in hours
+
+
+class TelegramSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="TELEGRAM__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    bot_token: str = ""
+    enabled: bool = False
+
+
+class EvalSettings(BaseConfigSettings):
+    """DeepEval RAG evaluation harness settings.
+
+    The judge LLM is intentionally separate from the production Ollama
+    model: a 1B local model is too weak to produce stable DeepEval scores,
+    so the harness uses a cloud model (e.g. gpt-4o-mini) as judge only.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="EVAL__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    judge_model: str = "gpt-4o-mini"
+    openai_api_key: str = ""
+    regression_threshold: float = 0.05
+    golden_dataset_path: str = "src/evaluation/golden_dataset.yaml"
+    results_dir: str = "src/evaluation/runs"
+
+
+class Settings(BaseConfigSettings):
+    app_version: str = "0.1.0"
+    debug: bool = True
+    environment: Literal["development", "staging", "production"] = "development"
+    service_name: str = "rag-api"
+
+    postgres_database_url: str = "postgresql://rag_user:rag_password@localhost:5432/rag_db"
+    postgres_echo_sql: bool = False
+    postgres_pool_size: int = 20
+    postgres_max_overflow: int = 0
+    # Separate, explicitly-sized pool for the LangGraph checkpointer (async psycopg3
+    # driver) so it doesn't silently compete unbounded with the sync pool above for
+    # Postgres max_connections.
+    postgres_checkpointer_pool_size: int = 5
+
+    ollama_host: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:1b"
+    ollama_timeout: int = 300
+
+    cors_origins: List[str] = ["http://localhost", "http://localhost:3002", "http://localhost:3000"]
+
+    # Jina AI embeddings configuration
+    jina_api_key: str = ""
+
+    chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
+    opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
+    langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
+    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    eval: EvalSettings = Field(default_factory=EvalSettings)
+
+    @field_validator("postgres_database_url")
+    @classmethod
+    def validate_database_url(cls, v: str) -> str:
+        if not (v.startswith("postgresql://") or v.startswith("postgresql+psycopg2://")):
+            raise ValueError("Database URL must start with 'postgresql://' or 'postgresql+psycopg2://'")
+        return v
+
+
+def get_settings() -> Settings:
+    return Settings()
