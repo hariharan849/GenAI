@@ -90,12 +90,11 @@ x-airflow-common:
     AIRFLOW__METRICS__STATSD_PORT: '9125'
     AIRFLOW__METRICS__STATSD_PREFIX: airflow
   volumes:
-    - ${AIRFLOW_PROJ_DIR:-.}/airflow/dags:/opt/airflow/dags
-    - ${AIRFLOW_PROJ_DIR:-.}/airflow/logs:/opt/airflow/logs
-    - ${AIRFLOW_PROJ_DIR:-.}/airflow/config:/opt/airflow/config
-    - ${AIRFLOW_PROJ_DIR:-.}/airflow/plugins:/opt/airflow/plugins
-    - ${AIRFLOW_PROJ_DIR:-.}/src:/opt/airflow/src
-    - ${AIRFLOW_PROJ_DIR:-.}/airflow/src:/opt/airflow/airflow_src
+    - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/dags:/opt/airflow/dags
+    - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/logs:/opt/airflow/logs
+    - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/config:/opt/airflow/config
+    - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/src:/opt/airflow/api
   user: "${AIRFLOW_UID:-50000}:0"
   networks:
     - rag-network
@@ -422,7 +421,7 @@ services:
   prefect-worker:
     build:
       context: .
-      dockerfile: prefect/Dockerfile
+      dockerfile: orchestrators/prefect/Dockerfile
     container_name: rag-prefect-worker
     env_file:
       - ${ENV_FILE_PATH:-.env}
@@ -796,7 +795,7 @@ services:
       - "9125:9125/tcp"
       - "9102:9102"
     volumes:
-      - ./monitoring/statsd_exporter/statsd_mapping.yml:/etc/statsd_exporter/statsd_mapping.yml:ro
+      - ./infra/monitoring/statsd_exporter/statsd_mapping.yml:/etc/statsd_exporter/statsd_mapping.yml:ro
     networks:
       - rag-network
     restart: unless-stopped
@@ -819,7 +818,7 @@ services:
     ports:
       - "9099:9090"
     volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     networks:
       - rag-network
@@ -847,8 +846,8 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - rag-network
     restart: unless-stopped
@@ -868,7 +867,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - ./infra/monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/loki
     networks:
       - rag-network
@@ -885,7 +884,7 @@ services:
     container_name: rag-promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
-      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - ./infra/monitoring/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -947,7 +946,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - api
       - ui
@@ -963,7 +962,7 @@ services:
   dagster-user-code:
     build:
       context: .
-      dockerfile: dagster/Dockerfile
+      dockerfile: orchestrators/dagster/Dockerfile
     container_name: rag-dagster-user-code
     environment:
       SERVICE: code-server
@@ -986,7 +985,7 @@ services:
   dagster-webserver:
     build:
       context: .
-      dockerfile: dagster/Dockerfile
+      dockerfile: orchestrators/dagster/Dockerfile
     container_name: rag-dagster-webserver
     environment:
       SERVICE: webserver
@@ -1010,7 +1009,7 @@ services:
   dagster-daemon:
     build:
       context: .
-      dockerfile: dagster/Dockerfile
+      dockerfile: orchestrators/dagster/Dockerfile
     container_name: rag-dagster-daemon
     environment:
       SERVICE: daemon
