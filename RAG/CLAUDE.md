@@ -19,7 +19,7 @@ A Nuke documentation RAG system with agentic RAG capabilities. It:
 uv sync
 
 # Run the FastAPI server locally
-uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Run shared infrastructure only (OpenSearch, PostgreSQL, Redis, Langfuse, monitoring)
 docker compose up -d
@@ -59,7 +59,7 @@ docker compose build rag-api
 
 ```
 Client
-  └─► FastAPI routers (src/routers/)
+  └─► FastAPI routers (api/routers/)
         ├── /hybrid-search  → OpenSearchClient.search_unified() (BM25+vector RRF)
         ├── /ask            → OpenSearch → Ollama (+ Redis cache + Langfuse trace)
         ├── /stream         → same as /ask but streaming
@@ -71,14 +71,14 @@ Client
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Routers | `src/routers/` | HTTP endpoints, request validation, response formatting |
-| Services | `src/services/` | Business logic, external client wrappers |
-| Repositories | `src/repositories/` | SQLAlchemy data access (`nuke_page.py`) |
-| Models | `src/models/` | SQLAlchemy ORM models |
-| Schemas | `src/schemas/` | Pydantic request/response models |
-| DB | `src/db/` | SQLAlchemy engine/session factory, abstract base classes |
-| Agents | `src/services/agents/` | LangGraph agentic RAG (state, nodes, tools, prompts) |
-| Airflow DAGs | `airflow/dags/` | Nuke docs ingestion pipeline |
+| Routers | `api/routers/` | HTTP endpoints, request validation, response formatting |
+| Services | `api/services/` | Business logic, external client wrappers |
+| Repositories | `api/repositories/` | SQLAlchemy data access (`nuke_page.py`) |
+| Models | `api/models/` | SQLAlchemy ORM models |
+| Schemas | `api/schemas/` | Pydantic request/response models |
+| DB | `api/db/` | SQLAlchemy engine/session factory, abstract base classes |
+| Agents | `api/services/agents/` | LangGraph agentic RAG (state, nodes, tools, prompts) |
+| Airflow DAGs | `orchestrators/airflow/dags/` | Nuke docs ingestion pipeline |
 
 ### Service Initialization
 
@@ -86,7 +86,7 @@ All services are initialized in `src/main.py` lifespan with strict ordering: dat
 
 ### Agentic RAG Workflow (LangGraph)
 
-Located in `src/services/agents/`. Uses `AgentState` (TypedDict) with nodes:
+Located in `api/services/agents/`. Uses `AgentState` (TypedDict) with nodes:
 1. **Guardrail** — content safety check
 2. **Out-of-scope router** — redirects non-research questions
 3. **Retrieve** — OpenSearch hybrid search via LangChain tool
@@ -98,7 +98,7 @@ Nodes use `context.py` for dependency injection rather than closures.
 
 ### Ingestion Pipeline (Airflow)
 
-`airflow/dags/nuke_docs_ingestion.py` — linear DAG (manual trigger):
+`orchestrators/airflow/dags/nuke_docs_ingestion.py` — linear DAG (manual trigger):
 `setup → scrape_nuke_docs → save_nuke_pages_to_db → index_nuke_docs → generate_nuke_report → cleanup_temp_files`
 
 - `scraping.py`: Crawls Foundry Nuke 17.0 reference guide → extracts node pages → writes JSON via XCom
@@ -107,20 +107,20 @@ Nodes use `context.py` for dependency injection rather than closures.
 
 ### Configuration
 
-`src/config.py` uses nested Pydantic `BaseSettings`. All values come from environment variables (`.env` file at root). Key nested configs: `ChunkingSettings`, `OpenSearchSettings`, `LangfuseSettings`, `RedisSettings`, `TelegramSettings`.
+`api/config.py` uses nested Pydantic `BaseSettings`. All values come from environment variables (`.env` file at root). Key nested configs: `ChunkingSettings`, `OpenSearchSettings`, `LangfuseSettings`, `RedisSettings`, `TelegramSettings`.
 
 ## Core Technology Choices
 
 - **Chunking**: 600-char chunks, 100-char overlap, 50-char minimum. Text-based (Nuke pages are scraped HTML, not PDFs).
 - **Embeddings**: Jina AI v3 (`retrieval.passage` for docs, `retrieval.query` for queries), 1024 dimensions, batched at 100 texts per API call.
 - **Search**: OpenSearch RRF pipeline combining BM25 and k-NN vector search. Index: `nuke-docs-chunks`.
-- **LLM**: Ollama `llama3.2:1b` (local). Prompts live in `src/services/agents/prompts.py` (agentic) and `src/services/ollama/prompts.py` (simple RAG).
+- **LLM**: Ollama `llama3.2:1b` (local). Prompts live in `api/services/agents/prompts.py` (agentic) and `api/services/ollama/prompts.py` (simple RAG).
 - **Tracing**: Langfuse v3. All LangChain/LangGraph calls traced automatically via `CallbackHandler`. Manual spans added for Ollama calls.
 - **Caching**: Redis exact-match cache. Key = SHA256 of `(query, model, top_k, use_hybrid, categories)`. TTL: 6 hours.
 
 ## Data Models
 
-**PostgreSQL `nuke_pages` table** (`src/models/nuke_page.py`): stores scraped Nuke documentation pages with fields `node_name`, `section`, `url`, `content`, and an `indexed` boolean tracking ingestion state.
+**PostgreSQL `nuke_pages` table** (`api/models/nuke_page.py`): stores scraped Nuke documentation pages with fields `node_name`, `section`, `url`, `content`, and an `indexed` boolean tracking ingestion state.
 
 **OpenSearch index** `nuke-docs-chunks`: Each document is a chunk with `node_name`, `section`, `url`, `chunk_text` (text field for BM25), and `embedding` (knn_vector, 1024-dim).
 

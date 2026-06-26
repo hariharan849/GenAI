@@ -94,7 +94,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/plugins:/opt/airflow/plugins
-    - ${AIRFLOW_PROJ_DIR:-.}/src:/opt/airflow/api
+    - ${AIRFLOW_PROJ_DIR:-.}/api:/opt/airflow/api
   user: "${AIRFLOW_UID:-50000}:0"
   networks:
     - rag-network

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.services.agents.agentic_rag import AgenticRAGService
+from api.services.agents.agentic_rag import AgenticRAGService
 
 
 def _make_service() -> AgenticRAGService:

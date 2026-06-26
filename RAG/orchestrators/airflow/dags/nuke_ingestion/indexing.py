@@ -2,11 +2,11 @@ import asyncio
 import hashlib
 import logging
 
-from src.db.factory import make_database
-from src.repositories.nuke_page import NukePageRepository
-from src.services.embeddings.factory import make_embeddings_client
-from src.services.indexing.text_chunker import TextChunker
-from src.services.opensearch.factory import make_opensearch_client_fresh
+from api.db.factory import make_database
+from api.repositories.nuke_page import NukePageRepository
+from api.services.embeddings.factory import make_embeddings_client
+from api.services.indexing.text_chunker import TextChunker
+from api.services.opensearch.factory import make_opensearch_client_fresh
 
 logger = logging.getLogger(__name__)
 

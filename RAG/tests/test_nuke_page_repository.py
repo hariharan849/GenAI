@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from src.models.nuke_page import NukePage
-from src.repositories.nuke_page import NukePageRepository
+from api.models.nuke_page import NukePage
+from api.repositories.nuke_page import NukePageRepository
 
 
 def _make_page(url: str = "https://example.com/node", content: str = "some text") -> dict:

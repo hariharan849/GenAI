@@ -1,8 +1,8 @@
 import json
 import logging
 
-from src.db.factory import make_database
-from src.repositories.nuke_page import NukePageRepository
+from api.db.factory import make_database
+from api.repositories.nuke_page import NukePageRepository
 
 logger = logging.getLogger(__name__)
 
