@@ -1,5 +1,3 @@
-from .paper import PaperRepository
+from .nuke_page import NukePageRepository
 
-__all__ = [
-    "PaperRepository",
-]
+__all__ = ["NukePageRepository"]

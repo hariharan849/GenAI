@@ -17,7 +17,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from prometheus_fastapi_instrumentator import Instrumentator
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
-from src import metrics  # noqa: F401 — registers all Prometheus metric singletons
+from api import metrics  # noqa: F401 — registers all Prometheus metric singletons
 from api.config import get_settings
 from api.db.factory import make_database
 from api.middlewares import MetricsMiddleware
