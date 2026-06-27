@@ -60,12 +60,13 @@ class NukePageRepository:
             if existing:
                 try:
                     lsh.remove(existing.url)
-                except KeyError:
+                except (KeyError, ValueError):
                     pass
                 lsh.insert(page["url"], mh)
                 existing.raw_content = page["content"]
                 existing.node_name = page["node_name"]
                 existing.section = page["section"]
+                existing.sections = page.get("sections")
                 existing.nuke_version = nuke_version
                 existing.nuke_pages_indexed = False
                 existing.scraped_at = now
@@ -85,6 +86,7 @@ class NukePageRepository:
                     node_name=page["node_name"],
                     section=page["section"],
                     raw_content=page["content"],
+                    sections=page.get("sections"),
                     nuke_version=nuke_version,
                     scraped_at=now,
                 ))

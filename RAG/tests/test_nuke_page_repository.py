@@ -38,7 +38,7 @@ class TestUpsertPages:
         repo = NukePageRepository(session)
         repo.get_by_url = MagicMock(return_value=None)
 
-        count = repo.upsert_pages([_make_page()], nuke_version="17.0")
+        count, skipped = repo.upsert_pages([_make_page()], nuke_version="17.0")
 
         session.add.assert_called_once()
         added: NukePage = session.add.call_args[0][0]
@@ -56,7 +56,7 @@ class TestUpsertPages:
         existing.nuke_pages_indexed = True
         repo.get_by_url = MagicMock(return_value=existing)
 
-        count = repo.upsert_pages([_make_page(content="new text")], nuke_version="17.1")
+        count, skipped = repo.upsert_pages([_make_page(content="new text")], nuke_version="17.1")
 
         assert existing.raw_content == "new text"
         assert existing.nuke_version == "17.1"
@@ -70,7 +70,7 @@ class TestUpsertPages:
         repo = NukePageRepository(session)
         repo.get_by_url = MagicMock(return_value=None)
 
-        count = repo.upsert_pages([_make_page(content="")], nuke_version="17.0")
+        count, _ = repo.upsert_pages([_make_page(content="")], nuke_version="17.0")
 
         session.add.assert_not_called()
         assert count == 0
@@ -81,7 +81,7 @@ class TestUpsertPages:
         repo.get_by_url = MagicMock(return_value=None)
         page = {"url": "https://example.com/node", "node_name": "Blur", "section": "Ref"}
 
-        count = repo.upsert_pages([page], nuke_version="17.0")
+        count, _ = repo.upsert_pages([page], nuke_version="17.0")
 
         session.add.assert_not_called()
         assert count == 0
@@ -90,9 +90,10 @@ class TestUpsertPages:
         session = MagicMock()
         repo = NukePageRepository(session)
         repo.get_by_url = MagicMock(return_value=None)
-        pages = [_make_page(url=f"https://example.com/{i}") for i in range(3)]
+        # Use distinct content per URL so MinHash LSH does not flag them as near-duplicates
+        pages = [_make_page(url=f"https://example.com/{i}", content=f"unique content for node {i} " * 20) for i in range(3)]
 
-        count = repo.upsert_pages(pages, nuke_version="17.0")
+        count, _ = repo.upsert_pages(pages, nuke_version="17.0")
 
         assert session.add.call_count == 3
         session.commit.assert_called_once()

@@ -18,6 +18,7 @@ NUKE_INDEX_MAPPING = {
         "properties": {
             "nuke_node_name": {"type": "keyword"},
             "section": {"type": "keyword"},
+            "section_title": {"type": "keyword"},
             "url": {"type": "keyword"},
             "chunk_text": {"type": "text", "analyzer": "standard"},
             "chunk_index": {"type": "integer"},
@@ -56,14 +57,20 @@ async def _index_pages(pages: list[dict]) -> tuple[dict, list]:
     all_chunks = []
     all_chunks_meta = []  # parallel list: carries page UUID per chunk, never bulk-indexed
     for page in pages:
-        text_chunks = chunker.chunk_text(
-            page["raw_content"], doc_id=page["url"], page_id=page["url"]
-        )
+        if page.get("sections"):
+            text_chunks = chunker.chunk_sections(
+                page["sections"], doc_id=page["url"], page_id=page["url"]
+            )
+        else:
+            text_chunks = chunker.chunk_text(
+                page["raw_content"], doc_id=page["url"], page_id=page["url"]
+            )
         for chunk in text_chunks:
             all_chunks.append({
                 "_id": _doc_id(page["url"], chunk.metadata.chunk_index),
                 "nuke_node_name": page["node_name"],
                 "section": page["section"],
+                "section_title": chunk.metadata.section_title,
                 "url": page["url"],
                 "chunk_text": chunk.text,
                 "chunk_index": chunk.metadata.chunk_index,
@@ -123,6 +130,7 @@ def index_nuke_docs(**context) -> dict:
                 "node_name": r.node_name,
                 "section": r.section,
                 "raw_content": r.raw_content,
+                "sections": r.sections,
             }
             for r in rows
         ]

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from api.db.interfaces.postgresql import Base
 
@@ -17,6 +17,7 @@ class NukePage(Base):
     raw_content = Column(Text, nullable=False)
     nuke_version = Column(String, nullable=False)
     scraped_at = Column(DateTime, nullable=False)
+    sections = Column(JSONB, nullable=True)
     nuke_pages_indexed = Column(Boolean, default=False, nullable=False, index=True)
     indexed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

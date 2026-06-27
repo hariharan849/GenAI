@@ -136,7 +136,60 @@ def _parse_node_page(node_soup: BeautifulSoup, url: str) -> dict | None:
     # parts[0] = "reference_guide", parts[1] = section, parts[2] = subsection, parts[3] = node.html
     section = parts[1] if len(parts) > 2 else "reference_guide"
 
-    return {"url": url, "node_name": node_name, "section": section, "content": text}
+    sections = _extract_sections(main_div)
+
+    return {"url": url, "node_name": node_name, "section": section, "content": text, "sections": sections}
+
+
+def _extract_sections(main_div) -> list[dict]:
+    """Extract h2-delimited sections from a parsed content div.
+
+    Returns a list of {"title": str, "text": str} dicts. Returns [] when no
+    h2 headings are present so callers can fall back to flat chunking.
+
+    Preferred path: h2s are direct children of main_div (recursive=False).
+    Fallback path: h2s are nested inside wrapper divs (recursive=True).
+    """
+    sections = []
+    h2_direct = main_div.find_all("h2", recursive=False)
+
+    if h2_direct:
+        first_h2 = h2_direct[0]
+        intro_parts = []
+        for elem in main_div.children:
+            if elem is first_h2:
+                break
+            if hasattr(elem, "get_text"):
+                t = elem.get_text(separator=" ", strip=True)
+                if t:
+                    intro_parts.append(t)
+        if intro_parts:
+            sections.append({"title": "Overview", "text": " ".join(intro_parts).strip()})
+
+        for h2 in h2_direct:
+            title = h2.get_text(strip=True)
+            content_parts = []
+            for sibling in h2.find_next_siblings():
+                if sibling.name == "h2":
+                    break
+                content_parts.append(sibling.get_text(separator=" ", strip=True))
+            section_text = " ".join(content_parts).strip()
+            if section_text:
+                sections.append({"title": title, "text": section_text})
+    else:
+        # Fallback: h2s may be nested inside wrapper divs
+        for h2 in main_div.find_all("h2"):
+            title = h2.get_text(strip=True)
+            content_parts = []
+            for sibling in h2.find_next_siblings():
+                if sibling.find("h2"):
+                    break
+                content_parts.append(sibling.get_text(separator=" ", strip=True))
+            section_text = " ".join(content_parts).strip()
+            if section_text:
+                sections.append({"title": title, "text": section_text})
+
+    return sections
 
 
 def scrape_nuke_reference_guide(**context) -> dict:

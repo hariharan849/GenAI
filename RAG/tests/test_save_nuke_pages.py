@@ -41,7 +41,7 @@ class TestSaveNukePages:
         # Stub the nuke_docs_ingestion module so the deferred import works
         nuke_mod = SimpleNamespace(NUKE_VERSION="17.0")
         mock_repo = MagicMock()
-        mock_repo.upsert_pages.return_value = len(pages)
+        mock_repo.upsert_pages.return_value = (len(pages), [])
 
         with patch.dict("sys.modules", {"nuke_docs_ingestion": nuke_mod}):
             # Reload to pick up the stub
@@ -88,7 +88,7 @@ class TestSaveNukePages:
         )
         assert called_version == "17.0"
         assert len(called_pages) == 3
-        ti.xcom_push.assert_called_once_with(key="pages_saved", value=3)
+        ti.xcom_push.assert_any_call(key="pages_saved", value=3)
         assert result["pages_saved"] == 3
 
     def test_empty_pages_list_skips_db(self):
@@ -109,4 +109,4 @@ class TestSaveNukePages:
             mock_make_db.assert_not_called()
 
         assert result["pages_saved"] == 0
-        ti.xcom_push.assert_called_once_with(key="pages_saved", value=0)
+        ti.xcom_push.assert_any_call(key="pages_saved", value=0)

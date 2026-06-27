@@ -115,3 +115,43 @@ class TextChunker:
 
         logger.info(f"Chunked doc {doc_id}: {len(words)} words -> {len(chunks)} chunks")
         return chunks
+
+    def chunk_sections(
+        self,
+        sections: list[dict],
+        doc_id: str,
+        page_id: str,
+    ) -> list[TextChunk]:
+        """Chunk a list of sections, preserving section boundaries.
+
+        Each section is chunked independently; chunk_index is global across all
+        sections so OpenSearch doc IDs remain unique within a page.
+        section_title is populated on every returned chunk.
+
+        :param sections: List of {"title": str, "text": str} dicts
+        :param doc_id: Document identifier (e.g. URL)
+        :param page_id: Page/database identifier
+        :returns: List of TextChunks with section_title set
+        """
+        chunks: list[TextChunk] = []
+        global_chunk_index = 0
+        for section in sections:
+            section_chunks = self.chunk_text(section["text"], doc_id=doc_id, page_id=page_id)
+            for chunk in section_chunks:
+                new_meta = ChunkMetadata(
+                    chunk_index=global_chunk_index,
+                    start_char=chunk.metadata.start_char,
+                    end_char=chunk.metadata.end_char,
+                    word_count=chunk.metadata.word_count,
+                    overlap_with_previous=chunk.metadata.overlap_with_previous,
+                    overlap_with_next=chunk.metadata.overlap_with_next,
+                    section_title=section["title"],
+                )
+                chunks.append(TextChunk(
+                    text=chunk.text,
+                    metadata=new_meta,
+                    doc_id=chunk.doc_id,
+                    page_id=chunk.page_id,
+                ))
+                global_chunk_index += 1
+        return chunks
