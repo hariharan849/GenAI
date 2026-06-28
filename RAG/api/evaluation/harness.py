@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from deepeval.metrics import AnswerRelevancyMetric, ContextualRelevancyMetric, FaithfulnessMetric
 from deepeval.test_case import LLMTestCase
@@ -38,6 +39,15 @@ def _build_metrics(judge_model: str) -> List:
     ]
 
 
+def _score_case_sync(test_case: LLMTestCase, metrics: list) -> Dict[str, float]:
+    """Run DeepEval metrics synchronously — called via run_in_executor to avoid blocking the event loop."""
+    scores: Dict[str, float] = {}
+    for metric in metrics:
+        metric.measure(test_case)
+        scores[metric.__class__.__name__] = metric.score
+    return scores
+
+
 async def run_case(service: AgenticRAGService, case: GoldenCase, judge_model: str) -> CaseResult:
     """Run one golden case through the agentic RAG pipeline and score it.
 
@@ -60,15 +70,31 @@ async def run_case(service: AgenticRAGService, case: GoldenCase, judge_model: st
             retrieval_context=retrieval_context,
         )
 
-        scores: Dict[str, float] = {}
-        for metric in _build_metrics(judge_model):
-            metric.measure(test_case)
-            scores[metric.__class__.__name__] = metric.score
+        loop = asyncio.get_running_loop()
+        scores = await loop.run_in_executor(None, _score_case_sync, test_case, _build_metrics(judge_model))
 
         return CaseResult(case_id=case.case_id, question=case.question, status="scored", scores=scores)
     except Exception as e:
         logger.warning(f"[{case.case_id}] eval case failed, recording as errored: {e}")
         return CaseResult(case_id=case.case_id, question=case.question, status="errored", error=str(e))
+
+
+async def run_harness_from_cases(
+    service: AgenticRAGService,
+    cases: List[GoldenCase],
+    judge_model: str,
+    progress_cb: Optional[Callable[[], None]] = None,
+) -> List[CaseResult]:
+    """Run harness from pre-loaded cases. Called by the eval router (cases already parsed from upload).
+
+    progress_cb is called after each case — used to increment the in-memory completed counter.
+    """
+    results = []
+    for case in cases:
+        results.append(await run_case(service, case, judge_model))
+        if progress_cb:
+            progress_cb()
+    return results
 
 
 async def run_harness(service: AgenticRAGService, dataset_path: str, judge_model: str) -> List[CaseResult]:

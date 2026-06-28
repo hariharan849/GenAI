@@ -97,17 +97,25 @@ class RedisSettings(BaseConfigSettings):
     ttl_hours: int = 6  # Cache TTL in hours
 
 
-class TelegramSettings(BaseConfigSettings):
+
+class Neo4jSettings(BaseConfigSettings):
     model_config = SettingsConfigDict(
         env_file=[".env", str(ENV_FILE_PATH)],
-        env_prefix="TELEGRAM__",
+        env_prefix="NEO4J__",
         extra="ignore",
         frozen=True,
         case_sensitive=False,
     )
 
-    bot_token: str = ""
+    host: str = "localhost"
+    port: int = 7687
+    user: str = "neo4j"
+    password: str = "nukedocs123"
     enabled: bool = False
+
+    @property
+    def bolt_url(self) -> str:
+        return f"bolt://{self.host}:{self.port}"
 
 
 class EvalSettings(BaseConfigSettings):
@@ -129,8 +137,8 @@ class EvalSettings(BaseConfigSettings):
     judge_model: str = "gpt-4o-mini"
     openai_api_key: str = ""
     regression_threshold: float = 0.05
-    golden_dataset_path: str = "src/evaluation/golden_dataset.yaml"
-    results_dir: str = "src/evaluation/runs"
+    golden_dataset_path: str = "api/evaluation/golden_dataset.yaml"
+    results_dir: str = "api/evaluation/runs"
 
 
 class Settings(BaseConfigSettings):
@@ -161,8 +169,8 @@ class Settings(BaseConfigSettings):
     opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
-    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
     eval: EvalSettings = Field(default_factory=EvalSettings)
+    neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
 
     @field_validator("postgres_database_url")
     @classmethod
@@ -170,6 +178,12 @@ class Settings(BaseConfigSettings):
         if not (v.startswith("postgresql://") or v.startswith("postgresql+psycopg2://")):
             raise ValueError("Database URL must start with 'postgresql://' or 'postgresql+psycopg2://'")
         return v
+
+    @property
+    def postgres_psycopg_url(self) -> str:
+        """psycopg3-compatible URL — strips the SQLAlchemy driver prefix (+psycopg2)
+        that libpq cannot parse and that causes AsyncConnectionPool to time out silently."""
+        return self.postgres_database_url.replace("postgresql+psycopg2://", "postgresql://")
 
 
 def get_settings() -> Settings:

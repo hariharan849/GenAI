@@ -51,7 +51,7 @@ x-airflow-common:
   # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
   build:
     context: .
-    dockerfile: Dockerfile
+    dockerfile: orchestrators/airflow/Dockerfile
   image: ${AIRFLOW_IMAGE_NAME:-rag-airflow:3.2.1}
   # build: .
   # context: .
@@ -403,12 +403,21 @@ services:
     command: prefect server start --host 0.0.0.0
     ports:
       - "4200:4200"
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      # Recycle connections every hour so stale psycopg2 connections don't cause
+      # "server closed the connection unexpectedly" after a PostgreSQL restart.
+      PREFECT_API_DATABASE_POOL_RECYCLE: "3600"
     volumes:
       - prefect-db:/root/.prefect
     networks:
       - rag-network
     profiles: [prefect]
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       # python:3.13-slim (base of prefecthq/prefect) does not include curl.
       # Use Python stdlib instead.
@@ -660,125 +669,6 @@ services:
     networks:
       - rag-network
 
-
-
-  # langfuse-worker:
-  #   image: docker.io/langfuse/langfuse-worker:3
-  #   restart: always
-  #   depends_on: &langfuse-depends-on
-  #     postgres:
-  #       condition: service_healthy
-  #     minio:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #     clickhouse:
-  #       condition: service_healthy
-  #   ports:
-  #     - 127.0.0.1:3030:3030
-  #   environment: &langfuse-worker-env
-  #     NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
-  #     DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://rag_user:rag_password@postgres/rag_db} # Done CHANGEME
-  #     SALT: ${LANGFUSE_SALT}
-  #     ENCRYPTION_KEY: ${ENCRYPTION_KEY:-43617712fab9a20f81fedec0b5f3f2e095ec8a551c56e99d7137eb72991a590c} # Done CHANGEME: generate via `openssl rand -hex 32`
-  #     TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
-  #     LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: ${LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES:-false}
-  #     CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:-clickhouse://clickhouse:9000}
-  #     CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
-  #     CLICKHOUSE_USER: langfuse
-  #     CLICKHOUSE_PASSWORD: langfuse
-  #     CLICKHOUSE_CLUSTER_ENABLED: ${CLICKHOUSE_CLUSTER_ENABLED:-false}
-  #     LANGFUSE_USE_AZURE_BLOB: ${LANGFUSE_USE_AZURE_BLOB:-false}
-  #     LANGFUSE_USE_OCI_NATIVE_OBJECT_STORAGE: ${LANGFUSE_USE_OCI_NATIVE_OBJECT_STORAGE:-false}
-  #     LANGFUSE_OCI_AUTH_TYPE: ${LANGFUSE_OCI_AUTH_TYPE:-workload_identity}
-  #     LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
-  #     LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
-  #     LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-minio}
-  #     LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-miniosecret} # Done CHANGEME
-  #     LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
-  #     LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
-  #     LANGFUSE_S3_EVENT_UPLOAD_PREFIX: ${LANGFUSE_S3_EVENT_UPLOAD_PREFIX:-events/}
-  #     LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse}
-  #     LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_MEDIA_UPLOAD_REGION:-auto}
-  #     LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID:-minio}
-  #     LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY:-miniosecret} # CHANGEME
-  #     LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT:-http://localhost:9090}
-  #     LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE:-true}
-  #     LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: ${LANGFUSE_S3_MEDIA_UPLOAD_PREFIX:-media/}
-  #     LANGFUSE_INGESTION_QUEUE_DELAY_MS: ${LANGFUSE_INGESTION_QUEUE_DELAY_MS:-}
-  #     LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS: ${LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS:-}
-  #     REDIS_HOST: ${REDIS_HOST:-redis}
-  #     REDIS_PORT: ${REDIS_PORT:-6379}
-  #     REDIS_AUTH: ${REDIS_AUTH:-} # Leave empty for dev - no auth on redis
-  #     REDIS_TLS_ENABLED: ${REDIS_TLS_ENABLED:-false}
-  #     REDIS_TLS_CA: ${REDIS_TLS_CA:-/certs/ca.crt}
-  #     REDIS_TLS_CERT: ${REDIS_TLS_CERT:-/certs/redis.crt}
-  #     REDIS_TLS_KEY: ${REDIS_TLS_KEY:-/certs/redis.key}
-  #     EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
-  #     SMTP_CONNECTION_URL: ${SMTP_CONNECTION_URL:-}
-
-  # langfuse-web:
-  #   image: docker.io/langfuse/langfuse:3
-  #   restart: always
-  #   depends_on: *langfuse-depends-on
-  #   ports:
-  #     - 3000:3000
-  #   environment:
-  #     <<: *langfuse-worker-env
-  #     NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
-  #     LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
-  #     LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
-  #     LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
-  #     LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
-  #     LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
-  #     LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
-  #     LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
-  #     LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
-  #     LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
-
-  # clickhouse:
-  #   image: docker.io/clickhouse/clickhouse-server
-  #   restart: always
-  #   user: "101:101"
-  #   environment:
-  #     CLICKHOUSE_DB: default
-  #     CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
-  #     CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse} # CHANGEME
-  #   volumes:
-  #     - langfuse_clickhouse_data:/var/lib/clickhouse
-  #     - langfuse_clickhouse_logs:/var/log/clickhouse-server
-  #   ports:
-  #     - 127.0.0.1:8123:8123
-  #     - 127.0.0.1:9000:9000
-  #   healthcheck:
-  #     test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 10
-  #     start_period: 1s
-
-  # minio:
-  #   image: cgr.dev/chainguard/minio
-  #   restart: always
-  #   entrypoint: sh
-  #   # create the 'langfuse' bucket before starting the service
-  #   command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
-  #   environment:
-  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
-  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
-  #   ports:
-  #     - 9090:9000
-  #     - 127.0.0.1:9091:9001
-  #   volumes:
-  #     - langfuse_minio_data:/data
-  #   healthcheck:
-  #     test: ["CMD", "mc", "ready", "local"]
-  #     interval: 1s
-  #     timeout: 5s
-  #     retries: 5
-  #     start_period: 1s
-
-
   # ── Monitoring stack ──────────────────────────────────────────────────────
 
   statsd-exporter:
@@ -959,6 +849,31 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── Neo4j knowledge graph (optional) ─────────────────────────────────────
+  # Start with: docker compose --profile neo4j up -d
+  # Browser UI: http://localhost:7474  (user: neo4j / pass: nukedocs123)
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: rag-neo4j
+    profiles: [neo4j]
+    environment:
+      NEO4J_AUTH: neo4j/nukedocs123
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - rag-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   dagster-user-code:
     build:
       context: .
@@ -1029,6 +944,7 @@ services:
 volumes:
   postgres_data:
   opensearch_data:
+  neo4j_data:
   valkey_data:
   clickhouse_data:
   langfuse_v3_minio_data:

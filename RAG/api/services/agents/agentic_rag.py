@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
 from langfuse.langchain import CallbackHandler
@@ -12,6 +12,9 @@ from api.services.embeddings.jina_client import JinaEmbeddingsClient
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
 from api.services.opensearch.client import OpenSearchClient
+
+if TYPE_CHECKING:
+    from api.services.graph.client import Neo4jClient
 
 from .config import GraphConfig
 from .context import Context
@@ -58,6 +61,8 @@ class AgenticRAGService:
         langfuse_tracer: Optional[LangfuseTracer] = None,
         graph_config: Optional[GraphConfig] = None,
         checkpointer: Optional[BaseCheckpointSaver] = None,
+        graph_client: Optional["Neo4jClient"] = None,
+        known_nodes: Optional[frozenset] = None,
     ):
         """Initialize agentic RAG service.
 
@@ -70,6 +75,8 @@ class AgenticRAGService:
             conversation memory. Caller (``main.py`` lifespan) owns its connection
             lifecycle — this service only consumes it. If ``None``, the graph
             compiles without persistence (today's behavior).
+        :param graph_client: Optional Neo4j client for KG retrieval (None = disabled)
+        :param known_nodes: frozenset of known Nuke node names for entity matching
         """
         self.opensearch = opensearch_client
         self.ollama = ollama_client
@@ -77,6 +84,8 @@ class AgenticRAGService:
         self.langfuse_tracer = langfuse_tracer
         self.graph_config = graph_config or GraphConfig()
         self.checkpointer = checkpointer
+        self.graph_client = graph_client
+        self.known_nodes = known_nodes or frozenset()
 
         logger.info("Initializing AgenticRAGService with configuration:")
         logger.info(f"  Model: {self.graph_config.model}")
@@ -112,6 +121,8 @@ class AgenticRAGService:
             embeddings_client=self.embeddings,
             top_k=self.graph_config.retrieval_top_k,
             use_hybrid=self.graph_config.use_hybrid,
+            graph_client=self.graph_client,
+            known_nodes=self.known_nodes,
         )
         tools = [retriever_tool]
 

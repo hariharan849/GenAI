@@ -95,6 +95,11 @@ class NukePageRepository:
         self.session.commit()
         return count, skipped
 
+    def get_distinct_node_names(self) -> list[str]:
+        from sqlalchemy import distinct
+        stmt = select(distinct(NukePage.node_name)).where(NukePage.node_name.isnot(None))
+        return [row for row in self.session.scalars(stmt) if row]
+
     def get_unindexed_pages(self) -> list[NukePage]:
         stmt = select(NukePage).where(NukePage.nuke_pages_indexed == False)
         return list(self.session.scalars(stmt))

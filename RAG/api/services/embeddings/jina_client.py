@@ -35,7 +35,14 @@ class JinaEmbeddingsClient:
 
     def _get_local_model(self):
         if self._local_model is None:
-            from sentence_transformers import SentenceTransformer
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError:
+                raise RuntimeError(
+                    "Jina API failed and the local fallback model requires 'sentence-transformers'. "
+                    "Install it with: pip install sentence-transformers  "
+                    "Or check your JINA_API_KEY — the API failure may be the real issue."
+                )
             logger.warning(f"Loading local fallback model {_LOCAL_MODEL_NAME}")
             self._local_model = SentenceTransformer(_LOCAL_MODEL_NAME)
         return self._local_model

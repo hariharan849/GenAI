@@ -5,10 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What This Project Is
 
 A Nuke documentation RAG system with agentic RAG capabilities. It:
-1. Runs an Airflow pipeline (manual trigger) to scrape, chunk, embed, and index Foundry Nuke 17.0 reference guide pages
+1. Runs ingestion pipelines (Airflow, Prefect, or Dagster — pick one) to scrape, chunk, embed, and index Foundry Nuke 17.0 reference guide pages
 2. Exposes a FastAPI REST API for hybrid semantic+keyword search and question answering over Nuke docs
-3. Provides an agentic RAG endpoint backed by a LangGraph workflow with guardrails, document grading, and query rewriting
-4. Uses Jina AI embeddings (1024-dim), OpenSearch for hybrid search (BM25 + vector RRF), Ollama for local LLM inference, Redis for caching, PostgreSQL for page metadata, and Langfuse for observability
+3. Provides an agentic RAG endpoint backed by a LangGraph workflow with guardrails, intent classification, document grading, re-ranking, and query rewriting
+4. Uses Jina AI embeddings (1024-dim), OpenSearch for hybrid search (BM25 + vector RRF), Ollama for local LLM inference, Redis for caching, PostgreSQL for page metadata and LangGraph checkpointing, and Langfuse for observability
+5. Ships a Next.js UI with CopilotKit and OpenAI Responses API chat providers, supporting both Nuke and arXiv knowledge bases
 
 ## Development Environment
 
@@ -51,7 +52,7 @@ docker compose build rag-api
 
 **Dagster** runs three containers (user-code gRPC server, webserver, daemon). Access the asset lineage UI at `http://localhost:3002`.
 
-**Service ports**: FastAPI: 8000 | Airflow: 8081 | Prefect: 4200 | Dagster: 3002 | OpenSearch: 9200 | OpenSearch Dashboards: 5601 | Langfuse: 3001 | PostgreSQL: 5436
+**Service ports**: FastAPI: 8083 | UI: 3004 | Nginx: 80 | Airflow: 8081 | Prefect: 4200 | Dagster: 3002 | OpenSearch: 9200 | OpenSearch Dashboards: 5601 | Langfuse: 3001 | Grafana: 3000 | Prometheus: 9099 | Loki: 3100 | PostgreSQL: 5436
 
 ## Architecture
 
@@ -64,7 +65,10 @@ Client
         ├── /ask            → OpenSearch → Ollama (+ Redis cache + Langfuse trace)
         ├── /stream         → same as /ask but streaming
         └── /ask-agentic    → AgenticRAGService (LangGraph graph)
-                                  Guardrail → Route → Retrieve → Grade → [Rewrite] → Generate
+                                  InputGuardrail → IntentClassify → [OutOfScope] →
+                                  Retrieve → GradeDocuments → Rerank →
+                                  [RewriteQuery → Retrieve (retry)] →
+                                  OutputGuardrail → GenerateAnswer
 ```
 
 ### Key Layers
@@ -76,53 +80,86 @@ Client
 | Repositories | `api/repositories/` | SQLAlchemy data access (`nuke_page.py`) |
 | Models | `api/models/` | SQLAlchemy ORM models |
 | Schemas | `api/schemas/` | Pydantic request/response models |
-| DB | `api/db/` | SQLAlchemy engine/session factory, abstract base classes |
-| Agents | `api/services/agents/` | LangGraph agentic RAG (state, nodes, tools, prompts) |
-| Airflow DAGs | `orchestrators/airflow/dags/` | Nuke docs ingestion pipeline |
+| DB | `api/db/` | SQLAlchemy engine/session factory, abstract base classes (`db/interfaces/`) |
+| Agents | `api/services/agents/` | LangGraph agentic RAG (state, nodes/, tools, prompts) |
+| Evaluation | `api/evaluation/` | DeepEval harness, golden dataset, run comparison |
+| Metrics | `api/metrics.py`, `api/middlewares.py` | Prometheus metric singletons + StatsD middleware |
+| Airflow | `orchestrators/airflow/dags/` | Nuke docs ingestion DAG + task modules |
+| Prefect | `orchestrators/prefect/flows/`, `deployments/` | Prefect flow + deployment definition |
+| Dagster | `orchestrators/dagster/assets/` | Dagster software-defined assets |
+| UI | `ui/` | Next.js frontend with CopilotKit and OpenAI Responses API providers |
 
 ### Service Initialization
 
-All services are initialized in `src/main.py` lifespan with strict ordering: database → OpenSearch → Jina embeddings → Ollama → Langfuse → Redis → Telegram. Services are injected via FastAPI `Depends` through `src/dependencies.py`.
+All services are initialized in `api/main.py` lifespan with strict ordering: database → OpenSearch → Jina embeddings → Ollama → Langfuse → Redis → LangGraph checkpointer pool → AgenticRAGService. Services are injected via FastAPI `Depends` through `api/dependencies.py`.
+
+The `AgenticRAGService` and its LangGraph checkpointer (`AsyncPostgresSaver` backed by a dedicated `AsyncConnectionPool`) are built **once at startup** and stored on `app.state` — not recreated per request. This keeps the Postgres connection pool alive across requests and avoids rebuilding the compiled graph on every call.
 
 ### Agentic RAG Workflow (LangGraph)
 
-Located in `api/services/agents/`. Uses `AgentState` (TypedDict) with nodes:
-1. **Guardrail** — content safety check
-2. **Out-of-scope router** — redirects non-research questions
-3. **Retrieve** — OpenSearch hybrid search via LangChain tool
-4. **Grade Documents** — relevance grading + re-ranking
-5. **Rewrite Query** — query optimization if documents are insufficient
-6. **Generate Answer** — final Ollama generation with citations
+Located in `api/services/agents/`. Uses `AgentState` (TypedDict) with nodes split into individual files under `nodes/`:
+1. **InputGuardrail** (`input_guardrail_node.py`) — content safety check on the incoming question
+2. **IntentClassify** (`intent_classify_node.py`) — routes in-scope vs out-of-scope questions
+3. **OutOfScope** (`out_of_scope_node.py`) — friendly deflection response
+4. **Retrieve** (`retrieve_node.py`) — OpenSearch hybrid search via LangChain tool
+5. **GradeDocuments** (`grade_documents_node.py`) — relevance grading of retrieved chunks
+6. **Rerank** (`rerank_node.py`) — re-ranks graded documents by score
+7. **RewriteQuery** (`rewrite_query_node.py`) — query optimisation when docs are insufficient, then retries retrieve
+8. **OutputGuardrail** (`output_guardrail_node.py`) — safety check on the generated answer
+9. **GenerateAnswer** (`generate_answer_node.py`) — final Ollama generation with citations
 
-Nodes use `context.py` for dependency injection rather than closures.
+Nodes use `context.py` for dependency injection rather than closures. Shared guardrail logic lives in `guardrail_common.py`.
 
-### Ingestion Pipeline (Airflow)
+### Ingestion Pipelines
 
-`orchestrators/airflow/dags/nuke_docs_ingestion.py` — linear DAG (manual trigger):
-`setup → scrape_nuke_docs → save_nuke_pages_to_db → index_nuke_docs → generate_nuke_report → cleanup_temp_files`
+Three orchestrator implementations exist under `orchestrators/`; pick one to run alongside shared infrastructure.
 
-- `scraping.py`: Crawls Foundry Nuke 17.0 reference guide → extracts node pages → writes JSON via XCom
-- `save.py`: Loads scraped JSON → upserts pages to PostgreSQL via `NukePageRepository`
-- `indexing.py`: PostgreSQL → chunk (600 chars / 100 overlap) → Jina embed → OpenSearch bulk index to `nuke-docs-chunks`
+**Airflow** (`orchestrators/airflow/`) — CeleryExecutor, UI at `:8081`
+DAG `nuke_docs_ingestion` (manual trigger): `setup → scrape_nuke_docs → save_nuke_pages_to_db → index_nuke_docs → generate_nuke_report → cleanup_temp_files`
+- `nuke_ingestion/scraping.py`: Crawls Foundry Nuke 17.0 reference guide → extracts node pages → writes JSON via XCom
+- `nuke_ingestion/save.py`: Upserts scraped pages to PostgreSQL via `NukePageRepository`
+- `nuke_ingestion/indexing.py`: PostgreSQL → section-aware chunk → Jina embed → OpenSearch bulk index
+
+**Prefect** (`orchestrators/prefect/`) — UI at `:4200`
+- `flows/nuke_ingestion.py`: Prefect flow mirroring the Airflow DAG steps
+- `deployments/nuke_ingestion_deployment.py`: Deployment definition for the worker
+
+**Dagster** (`orchestrators/dagster/`) — three containers (user-code gRPC, webserver, daemon), UI at `:3002`
+- `assets/nuke_ingestion.py`: Software-defined assets (`scraped_nuke_pages`, `saved_nuke_pages`, `indexed_nuke_docs`, `nuke_ingestion_report`) grouped under `nuke_ingestion`
+- `definitions.py`: Wires assets into `nuke_docs_ingestion` job
 
 ### Configuration
 
-`api/config.py` uses nested Pydantic `BaseSettings`. All values come from environment variables (`.env` file at root). Key nested configs: `ChunkingSettings`, `OpenSearchSettings`, `LangfuseSettings`, `RedisSettings`, `TelegramSettings`.
+`api/config.py` uses nested Pydantic `BaseSettings`. All values come from environment variables (`.env` file at root). Key nested configs: `ChunkingSettings`, `OpenSearchSettings`, `LangfuseSettings`, `RedisSettings`, `EvalSettings`. Telegram has been removed. `Settings.postgres_psycopg_url` is a property that strips the SQLAlchemy driver prefix (`+psycopg2`) for the psycopg3 async checkpointer pool.
 
 ## Core Technology Choices
 
-- **Chunking**: 600-char chunks, 100-char overlap, 50-char minimum. Text-based (Nuke pages are scraped HTML, not PDFs).
+- **Chunking**: Section-aware, 600-char target, 100-char overlap, 100-char minimum. Text-based (Nuke pages are scraped HTML, not PDFs). Configured via `CHUNKING__*` env vars.
 - **Embeddings**: Jina AI v3 (`retrieval.passage` for docs, `retrieval.query` for queries), 1024 dimensions, batched at 100 texts per API call.
 - **Search**: OpenSearch RRF pipeline combining BM25 and k-NN vector search. Index: `nuke-docs-chunks`.
 - **LLM**: Ollama `llama3.2:1b` (local). Prompts live in `api/services/agents/prompts.py` (agentic) and `api/services/ollama/prompts.py` (simple RAG).
+- **Checkpointing**: LangGraph conversation memory via `AsyncPostgresSaver` (psycopg3). Dedicated connection pool (`postgres_checkpointer_pool_size=5`) separate from the SQLAlchemy sync pool.
 - **Tracing**: Langfuse v3. All LangChain/LangGraph calls traced automatically via `CallbackHandler`. Manual spans added for Ollama calls.
 - **Caching**: Redis exact-match cache. Key = SHA256 of `(query, model, top_k, use_hybrid, categories)`. TTL: 6 hours.
+- **Evaluation**: DeepEval harness in `api/evaluation/`. Golden dataset at `api/evaluation/golden_dataset.yaml`. Uses a cloud judge model (`gpt-4o-mini` by default) separate from the production Ollama model.
+- **Observability**: Prometheus metrics exposed at `/metrics` via `prometheus-fastapi-instrumentator`. Custom metric singletons in `api/metrics.py`. StatsD middleware in `api/middlewares.py`. Grafana dashboards at `:3000`, Loki at `:3100`.
 
 ## Data Models
 
-**PostgreSQL `nuke_pages` table** (`api/models/nuke_page.py`): stores scraped Nuke documentation pages with fields `node_name`, `section`, `url`, `content`, and an `indexed` boolean tracking ingestion state.
+**PostgreSQL `nuke_pages` table** (`api/models/nuke_page.py`): stores scraped Nuke documentation pages with fields `node_name`, `section`, `url`, `content`, and an `indexed` boolean tracking ingestion state. Also hosts the LangGraph checkpointer tables (created automatically by `AsyncPostgresSaver.setup()`).
 
 **OpenSearch index** `nuke-docs-chunks`: Each document is a chunk with `node_name`, `section`, `url`, `chunk_text` (text field for BM25), and `embedding` (knn_vector, 1024-dim).
+
+### UI
+
+Next.js app at `ui/`. Accessed via Nginx reverse proxy (`:80`) or directly at `:3004`.
+
+- **`ui/app/page.tsx`**: Knowledge-source picker (Nuke / arXiv) and chat-provider picker (CopilotKit / OpenAI).
+- **`ui/components/RAGCopilot.tsx`**: CopilotKit sidebar using agentic RAG hooks.
+- **`ui/components/AgentSteps.tsx`**: Renders intermediate agent steps from the agentic RAG workflow.
+- **`ui/components/OpenAIChat.tsx`**: OpenAI Responses API chat with tool-calling loop (Nuke knowledge base only).
+- **`ui/app/api/copilotkit/`**: CopilotKit backend route.
+- **`ui/app/api/openai-chat/route.ts`**: OpenAI Responses API proxy route.
 
 ## Skill routing
 
