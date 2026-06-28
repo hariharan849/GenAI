@@ -22,7 +22,7 @@ from api import metrics  # noqa: F401 — registers all Prometheus metric single
 from api.config import get_settings
 from api.db.factory import make_database
 from api.middlewares import MetricsMiddleware
-from api.routers import agentic_ask, eval as eval_router, hybrid_search, ping
+from api.routers import agentic_ask, hybrid_search, ping
 from api.routers.ask import ask_router, stream_router
 from api.services.agents.factory import make_agentic_rag_service
 from api.services.cache.factory import make_cache_client
@@ -49,7 +49,6 @@ async def lifespan(app: FastAPI):
 
     settings = get_settings()
     app.state.settings = settings
-    app.state.eval_runs: dict = {}
 
     database = make_database()
     app.state.database = database
@@ -181,7 +180,6 @@ app.include_router(hybrid_search.router, prefix="/api/v1")  # Search chunks with
 app.include_router(ask_router, prefix="/api/v1")  # RAG question answering with LLM
 app.include_router(stream_router, prefix="/api/v1")  # Streaming RAG responses
 app.include_router(agentic_ask.router)  # Agentic RAG with intelligent retrieval
-app.include_router(eval_router.router)  # Eval harness — upload golden set + run against live endpoint
 
 
 if __name__ == "__main__":
