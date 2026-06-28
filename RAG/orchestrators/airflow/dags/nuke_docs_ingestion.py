@@ -6,7 +6,7 @@ from pathlib import Path
 from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 
-from nuke_ingestion.indexing import index_nuke_docs
+from nuke_ingestion.indexing import index_nuke_docs_ray
 from nuke_ingestion.reporting import generate_nuke_report
 from nuke_ingestion.save import save_nuke_pages
 from nuke_ingestion.scraping import scrape_nuke_reference_guide
@@ -83,7 +83,7 @@ save_task = PythonOperator(
 
 index_task = PythonOperator(
     task_id="index_nuke_docs",
-    python_callable=index_nuke_docs,
+    python_callable=index_nuke_docs_ray,
     execution_timeout=timedelta(minutes=20),
     dag=dag,
 )

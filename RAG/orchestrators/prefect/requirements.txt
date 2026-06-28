@@ -1,7 +1,11 @@
 # Core project deps are installed from pyproject.toml via `uv pip install --system .`
-# (see prefect/Dockerfile). Only Prefect itself is listed here.
+# (see prefect/Dockerfile). Only Prefect-specific extras are listed here.
 #
 # IMPORTANT: Pin to the same minor version as the prefect-server image.
 # Find the version: docker run --rm prefecthq/prefect:3-python3.13 prefect version
 # Then replace the constraint below with: prefect==<exact-version>
 prefect>=3.0,<4
+
+# Ray is Linux-only (no Windows wheels) so it lives outside pyproject.toml main deps.
+# Ray Data pipeline: chunk → embed (concurrency=3) → bulk-index (concurrency=1).
+ray[data]>=2.10

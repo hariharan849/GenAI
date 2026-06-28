@@ -1,3 +1,7 @@
 dagster>=1.9.0,<2.0
 dagster-webserver>=1.9.0,<2.0
 dagster-postgres>=0.25.0,<0.30.0
+
+# Ray is Linux-only (no Windows wheels) so it lives outside pyproject.toml main deps.
+# Ray Data pipeline: chunk → embed (concurrency=3) → bulk-index (concurrency=1).
+ray[data]>=2.10
