@@ -1,0 +1,11 @@
+output "vpc_id"                { value = module.networking.vpc_id }
+output "vpc_cidr"              { value = module.networking.vpc_cidr }
+output "subnet_id_az1"         { value = module.networking.subnet_id_az1 }
+output "subnet_id_az2"         { value = module.networking.subnet_id_az2 }
+output "sg_ssh_id"             { value = module.security.sg_ssh_id }
+output "sg_app_id"             { value = module.security.sg_app_id }
+output "sg_alb_id"             { value = module.security.sg_alb_id }
+output "infra_private_ip"      { value = module.ec2.private_ip }
+output "infra_public_ip"       { value = module.ec2.public_ip }
+output "infra_instance_id"     { value = module.ec2.instance_id }
+output "instance_profile_name" { value = module.iam.instance_profile_name }

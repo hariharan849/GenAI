@@ -1,0 +1,31 @@
+# UI layer: Next.js frontend only.
+# API_HOST must be set in the environment (written to /etc/environment by user_data).
+#
+# AWS:   docker compose -f docker-compose.ui.yaml up -d
+# Local: API_HOST=localhost docker compose -f docker-compose.ui.yaml up -d
+
+services:
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: rag-ui
+    environment:
+      - FASTAPI_INTERNAL_URL=http://${API_HOST}:8083
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "3004:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+networks:
+  default:
+    name: rag-ui-network

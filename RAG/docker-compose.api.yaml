@@ -1,0 +1,36 @@
+# API layer: FastAPI service only.
+# INFRA_HOST must be set in the environment (written to /etc/environment by user_data).
+#
+# AWS:   docker compose -f docker-compose.api.yaml up -d
+# Local: INFRA_HOST=localhost docker compose -f docker-compose.api.yaml up -d
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-api
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@${INFRA_HOST}:5432/rag_db
+      - OPENSEARCH__HOST=http://${INFRA_HOST}:9200
+      - REDIS__HOST=${INFRA_HOST}
+      - REDIS__PORT=6379
+      - CORS_ORIGINS=["http://localhost","http://localhost:3004"]
+    # Allows the container to reach Ollama running on the EC2 host (Linux Docker)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8083:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  default:
+    name: rag-api-network

@@ -1,0 +1,8 @@
+aws_region         = "us-east-1"
+name_prefix        = "rag"
+state_bucket       = "REPLACE_WITH_BUCKET_NAME"
+key_name           = "rag-key"
+public_key_content = "ssh-rsa AAAA...your-public-key-here"
+github_owner       = "your-github-username"
+github_repo        = "GenerativeAI"
+env_ssm_name       = "/rag/env"

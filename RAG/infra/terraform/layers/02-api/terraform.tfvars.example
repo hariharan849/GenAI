@@ -1,0 +1,9 @@
+aws_region         = "us-east-1"
+name_prefix        = "rag"
+state_bucket       = "REPLACE_WITH_BUCKET_NAME"  # from bootstrap output
+admin_cidr         = "203.0.113.5/32"
+key_name           = "rag-key"
+public_key_content = "ssh-rsa AAAA...your-public-key-here"
+github_owner       = "your-github-username"
+github_repo        = "GenerativeAI"
+env_ssm_name       = "/rag/env"

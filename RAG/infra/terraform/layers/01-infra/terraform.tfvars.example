@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and fill in your values.
+# Do NOT commit terraform.tfvars — it contains your SSH public key and IP.
+
+aws_region           = "us-east-1"
+name_prefix          = "rag"
+admin_cidr           = "203.0.113.5/32"   # Replace: curl -s https://checkip.amazonaws.com
+key_name             = "rag-key"
+public_key_content   = "ssh-rsa AAAA...your-public-key-here"
+github_owner         = "your-github-username"
+github_repo          = "GenerativeAI"
+orchestrator_profile = "prefect"           # prefect | airflow | dagster
+github_pat_ssm_name  = ""                  # Leave empty for public repos
+env_ssm_name         = "/rag/env"

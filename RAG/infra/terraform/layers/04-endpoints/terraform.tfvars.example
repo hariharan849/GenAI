@@ -1,0 +1,3 @@
+aws_region   = "us-east-1"
+name_prefix  = "rag"
+state_bucket = "REPLACE_WITH_BUCKET_NAME"

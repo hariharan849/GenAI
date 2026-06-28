@@ -12,3 +12,12 @@
 # Gstack planning artifacts
 PLAN*.md
 PLAN-*.md
+
+# Terraform — never commit layer state files or provider cache
+infra/terraform/**/.terraform/
+infra/terraform/**/.terraform.lock.hcl
+infra/terraform/layers/**/*.tfstate
+infra/terraform/layers/**/*.tfstate.backup
+infra/terraform/layers/**/terraform.tfvars
+# bootstrap state IS committed (resource IDs only, no secrets)
+!infra/terraform/bootstrap/terraform.tfstate
