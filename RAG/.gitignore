@@ -21,3 +21,6 @@ infra/terraform/layers/**/*.tfstate.backup
 infra/terraform/layers/**/terraform.tfvars
 # bootstrap state IS committed (resource IDs only, no secrets)
 !infra/terraform/bootstrap/terraform.tfstate
+
+# Next.js build output — large binary caches exceed GitHub's 100 MB limit
+ui/.next/
