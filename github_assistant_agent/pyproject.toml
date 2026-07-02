@@ -1,7 +1,7 @@
 [project]
-name = "blog-2-podcast"
+name = "github-assistant-agent"
 version = "0.1.0"
-description = "Simple agent to convert blog to podcast"
+description = "Repo-aware GitHub assistant with local indexing and CrewAI Q&A"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,8 +19,8 @@ dependencies = [
 ]
 
 [project.scripts]
-kickoff = "github_assistant_flow.main:kickoff"
-plot = "github_assistant_flow.main:plot"
+github-assistant = "github_assistant_agent:main"
+github-assistant-plot = "github_assistant_agent:plot"
 
 [build-system]
 requires = ["hatchling"]
@@ -28,4 +28,5 @@ build-backend = "hatchling.build"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+only-include = ["src/github_assistant_agent.py", "src/gradio_app.py"]
+sources = ["src"]

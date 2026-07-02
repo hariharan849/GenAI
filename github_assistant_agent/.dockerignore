@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.pyc
+.env
+src/.env
+github_assistant_flow.html
+.github_assistant_cache
+.pytest_cache
