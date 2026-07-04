@@ -29,6 +29,7 @@ x-airflow-common:
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
     PYTHONPATH: /opt/airflow
     POSTGRES_DATABASE_URL: postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
+    SEARCH__BACKEND: ${SEARCH__BACKEND:-postgres_embedding}
     OPENSEARCH_HOST: http://opensearch:9200
     OPENSEARCH__HOST: http://opensearch:9200
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
@@ -55,7 +56,10 @@ x-airflow-common:
 
 services:
   postgres:
-    image: postgres:latest
+    build:
+      context: .
+      dockerfile: infra/postgres-pg-embedding/Dockerfile
+    image: rag-postgres-pg-embedding:18-trixie-0.3.6
     container_name: rag-postgres
     command: postgres -c timezone=Asia/Kolkata
     environment:
@@ -343,6 +347,17 @@ services:
       timeout: 10s
       retries: 3
 
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: rag-node-exporter
+    command:
+      - "--path.rootfs=/host"
+    volumes:
+      - "/:/host:ro"
+    networks:
+      - rag-network
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v3.4.1
     container_name: rag-prometheus
@@ -363,6 +378,7 @@ services:
     restart: unless-stopped
     depends_on:
       - statsd-exporter
+      - node-exporter
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy > /dev/null 2>&1 || exit 1"]
       interval: 30s

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
-from api.services.opensearch.client import OpenSearchClient
+from api.search.protocol import SearchClient
 
 
 @dataclass
@@ -30,7 +30,7 @@ class Context:
     """
 
     ollama_client: OllamaClient
-    opensearch_client: OpenSearchClient
+    opensearch_client: SearchClient
     embeddings_client: JinaEmbeddingsClient
     langfuse_tracer: Optional[LangfuseTracer]
     trace: Optional["LangfuseSpan"] = None

@@ -10,7 +10,7 @@ const ALLOWED_SOURCES = ["nuke"] as const;
 type KnowledgeSource = (typeof ALLOWED_SOURCES)[number];
 
 const FASTAPI_ROUTES: Record<string, string> = {
-  search_papers: "/api/v1/hybrid-search/",
+  search_docs: "/api/v1/hybrid-search/",
   ask_question: "/api/v1/ask",
   ask_agentic: "/api/v1/ask-agentic",
 };
@@ -18,7 +18,7 @@ const FASTAPI_ROUTES: Record<string, string> = {
 const tools: OpenAI.Responses.Tool[] = [
   {
     type: "function",
-    name: "search_papers",
+    name: "search_docs",
     description:
       "Search the Nuke 17.0 documentation using hybrid BM25 + vector search. Use when the user wants to find or browse results on a topic.",
     parameters: {
@@ -70,7 +70,7 @@ function systemPrompt(knowledgeSource: KnowledgeSource): string {
   void knowledgeSource;
   return (
     "You are an AI assistant with access to the Foundry Nuke 17.0 VFX software documentation. " +
-    "Use search_papers to find and browse results. Use ask_question for direct answers. " +
+    "Use search_docs to find and browse results. Use ask_question for direct answers. " +
     "Use ask_agentic for complex multi-step questions. Always cite sources when available. " +
     "Do not answer from general knowledge when the question is about Nuke — use the tools."
   );
@@ -234,13 +234,13 @@ async function callFastAPI(
   args: Record<string, unknown>,
   knowledgeSource: KnowledgeSource
 ) {
-  const base = process.env.FASTAPI_BASE_URL ?? "http://localhost:8000";
+  const base = process.env.FASTAPI_INTERNAL_URL ?? process.env.FASTAPI_BASE_URL ?? "http://localhost:8000";
   const timeoutMs = toolName === "ask_agentic" ? 90_000 : 30_000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  // search_papers caps size at 10 to match FastAPI schema (ge=1, le=100 but UI max is 10)
-  if (toolName === "search_papers" && typeof args.size === "number") {
+  // search_docs caps size at 10 to match FastAPI schema (ge=1, le=100 but UI max is 10)
+  if (toolName === "search_docs" && typeof args.size === "number") {
     args = { ...args, size: Math.min(args.size as number, 10) };
   }
 

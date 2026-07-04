@@ -5,7 +5,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
-from api.services.opensearch.client import OpenSearchClient
+from api.search.protocol import SearchClient
 
 if TYPE_CHECKING:
     from api.services.graph.client import Neo4jClient
@@ -15,9 +15,10 @@ from .config import GraphConfig
 
 
 def make_agentic_rag_service(
-    opensearch_client: OpenSearchClient,
     ollama_client: OllamaClient,
     embeddings_client: JinaEmbeddingsClient,
+    search_client: Optional[SearchClient] = None,
+    opensearch_client: Optional[SearchClient] = None,
     langfuse_tracer: Optional[LangfuseTracer] = None,
     top_k: int = 3,
     use_hybrid: bool = True,
@@ -29,7 +30,7 @@ def make_agentic_rag_service(
     Create AgenticRAGService with dependency injection.
 
     Args:
-        opensearch_client: Client for document search
+        search_client: Client for document search
         ollama_client: Client for LLM generation
         embeddings_client: Client for embeddings
         langfuse_tracer: Optional Langfuse tracer for observability
@@ -43,13 +44,17 @@ def make_agentic_rag_service(
     Returns:
         Configured AgenticRAGService instance
     """
+    selected_search_client = search_client or opensearch_client
+    if selected_search_client is None:
+        raise ValueError("A search client is required")
+
     graph_config = GraphConfig(
         top_k=top_k,
         use_hybrid=use_hybrid,
     )
 
     return AgenticRAGService(
-        opensearch_client=opensearch_client,
+        opensearch_client=selected_search_client,
         ollama_client=ollama_client,
         embeddings_client=embeddings_client,
         langfuse_tracer=langfuse_tracer,

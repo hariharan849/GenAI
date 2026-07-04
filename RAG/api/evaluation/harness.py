@@ -23,6 +23,10 @@ class CaseResult:
     case_id: str
     question: str
     status: str
+    expected_output: str
+    expected_retrieval_context: Optional[List[str]] = None
+    actual_output: Optional[str] = None
+    retrieval_context: List[str] = field(default_factory=list)
     scores: Dict[str, float] = field(default_factory=dict)
     error: Optional[str] = None
 
@@ -73,10 +77,26 @@ async def run_case(service: AgenticRAGService, case: GoldenCase, judge_model: st
         loop = asyncio.get_running_loop()
         scores = await loop.run_in_executor(None, _score_case_sync, test_case, _build_metrics(judge_model))
 
-        return CaseResult(case_id=case.case_id, question=case.question, status="scored", scores=scores)
+        return CaseResult(
+            case_id=case.case_id,
+            question=case.question,
+            expected_output=case.expected_output,
+            expected_retrieval_context=case.expected_retrieval_context,
+            actual_output=actual_output,
+            retrieval_context=retrieval_context,
+            status="scored",
+            scores=scores,
+        )
     except Exception as e:
         logger.warning(f"[{case.case_id}] eval case failed, recording as errored: {e}")
-        return CaseResult(case_id=case.case_id, question=case.question, status="errored", error=str(e))
+        return CaseResult(
+            case_id=case.case_id,
+            question=case.question,
+            expected_output=case.expected_output,
+            expected_retrieval_context=case.expected_retrieval_context,
+            status="errored",
+            error=str(e),
+        )
 
 
 async def run_harness_from_cases(

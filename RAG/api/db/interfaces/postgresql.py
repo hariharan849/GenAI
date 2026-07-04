@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 Base = declarative_base()
 
 
+def ensure_nuke_page_kg_columns(engine: Engine) -> None:
+    """Patch existing nuke_pages tables with KG state columns."""
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE nuke_pages ADD COLUMN IF NOT EXISTS kg_extracted BOOLEAN NOT NULL DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE nuke_pages ADD COLUMN IF NOT EXISTS kg_extracted_at TIMESTAMP NULL"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_nuke_pages_kg_extracted ON nuke_pages (kg_extracted)"))
+
+
 class PostgreSQLDatabase(BaseDatabase):
     """PostgreSQL database implementation."""
 
@@ -51,8 +59,11 @@ class PostgreSQLDatabase(BaseDatabase):
             inspector = inspect(self.engine)
             existing_tables = inspector.get_table_names()
 
+            import api.models  # noqa: F401
+
             # Create tables if they don't exist (idempotent operation)
             Base.metadata.create_all(bind=self.engine)
+            ensure_nuke_page_kg_columns(self.engine)
 
             # Check if any new tables were created
             updated_tables = inspector.get_table_names()

@@ -14,10 +14,11 @@ else:
 from api.config import Settings
 from api.db.interfaces.base import BaseDatabase
 from api.services.cache.client import CacheClient
+from api.services.cache.semantic import SemanticCacheClient
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
-from api.services.opensearch.client import OpenSearchClient
+from api.search.protocol import SearchClient
 from api.services.agents.agentic_rag import AgenticRAGService
 
 
@@ -43,9 +44,14 @@ def get_db_session(database: Annotated[BaseDatabase, Depends(get_database)]) -> 
         yield session
 
 
-def get_opensearch_client(request: Request) -> OpenSearchClient:
-    """Get OpenSearch client from the request state."""
-    return request.app.state.opensearch_client
+def get_search_client(request: Request) -> SearchClient:
+    """Get configured search client from the request state."""
+    return request.app.state.search_client
+
+
+def get_opensearch_client(request: Request) -> SearchClient:
+    """Backward-compatible alias for the configured search client."""
+    return get_search_client(request)
 
 
 def get_embeddings_service(request: Request) -> JinaEmbeddingsClient:
@@ -68,15 +74,22 @@ def get_cache_client(request: Request) -> CacheClient | None:
     return getattr(request.app.state, "cache_client", None)
 
 
+def get_semantic_cache_client(request: Request) -> SemanticCacheClient | None:
+    """Get semantic cache client from request state if enabled and available."""
+    return getattr(request.app.state, "semantic_cache_client", None)
+
+
 # Dependency annotations
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DatabaseDep = Annotated[BaseDatabase, Depends(get_database)]
 SessionDep = Annotated[Session, Depends(get_db_session)]
-OpenSearchDep = Annotated[OpenSearchClient, Depends(get_opensearch_client)]
+SearchDep = Annotated[SearchClient, Depends(get_search_client)]
+OpenSearchDep = Annotated[SearchClient, Depends(get_opensearch_client)]
 EmbeddingsDep = Annotated[JinaEmbeddingsClient, Depends(get_embeddings_service)]
 OllamaDep = Annotated[OllamaClient, Depends(get_ollama_client)]
 LangfuseDep = Annotated[LangfuseTracer, Depends(get_langfuse_tracer)]
 CacheDep = Annotated[CacheClient | None, Depends(get_cache_client)]
+SemanticCacheDep = Annotated[SemanticCacheClient | None, Depends(get_semantic_cache_client)]
 
 
 def get_agentic_rag_service(request: Request) -> AgenticRAGService:

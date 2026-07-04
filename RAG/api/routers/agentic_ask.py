@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from api.dependencies import AgenticRAGDep, LangfuseDep
-from api.metrics import AGENTIC_REASONING_STEPS, AGENTIC_RETRIEVAL_ATTEMPTS
+from api.dependencies import AgenticRAGDep, LangfuseDep, SemanticCacheDep, SessionDep
+from api.metrics import AGENTIC_REASONING_STEPS, AGENTIC_RETRIEVAL_ATTEMPTS, SEMANTIC_CACHE_BYPASSES
+from api.repositories.rag_interaction import record_rag_interaction
 from api.schemas.api.ask import AgenticAskResponse, AskRequest, FeedbackRequest, FeedbackResponse
 
 router = APIRouter(prefix="/api/v1", tags=["agentic-rag"])
@@ -10,6 +11,8 @@ router = APIRouter(prefix="/api/v1", tags=["agentic-rag"])
 async def ask_agentic(
     request: AskRequest,
     agentic_rag: AgenticRAGDep,
+    semantic_cache_client: SemanticCacheDep,
+    db_session: SessionDep,
 ) -> AgenticAskResponse:
     """
     Agentic RAG endpoint with intelligent retrieval and query refinement.
@@ -38,6 +41,9 @@ async def ask_agentic(
         HTTPException: If processing fails
     """
     try:
+        if semantic_cache_client and semantic_cache_client.redis_settings.semantic_cache_enabled:
+            SEMANTIC_CACHE_BYPASSES.labels(endpoint="/ask-agentic", reason="endpoint_not_supported").inc()
+
         result = await agentic_rag.ask(
             query=request.query,
             user_id=request.user_id or "api_user",
@@ -47,7 +53,7 @@ async def ask_agentic(
         AGENTIC_RETRIEVAL_ATTEMPTS.observe(result.get("retrieval_attempts", 0))
         AGENTIC_REASONING_STEPS.observe(len(result.get("reasoning_steps", [])))
 
-        return AgenticAskResponse(
+        response = AgenticAskResponse(
             query=result["query"],
             answer=result["answer"],
             sources=result.get("sources", []),
@@ -57,6 +63,8 @@ async def ask_agentic(
             retrieval_attempts=result.get("retrieval_attempts", 0),
             trace_id=result.get("trace_id"),
         )
+        record_rag_interaction(db_session, "/ask-agentic", request, response.answer)
+        return response
 
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

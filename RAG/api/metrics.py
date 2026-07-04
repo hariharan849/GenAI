@@ -1,4 +1,29 @@
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+
+REQUEST_COUNTER = Counter(
+    "app_requests_total",
+    "Total HTTP requests",
+    labelnames=["service", "method", "endpoint", "status"],
+)
+
+ERROR_COUNTER = Counter(
+    "app_errors_total",
+    "Total application errors",
+    labelnames=["service", "type"],
+)
+
+REQUEST_LATENCY = Histogram(
+    "app_request_duration_seconds",
+    "HTTP request latency in seconds",
+    labelnames=["service", "method", "endpoint", "status"],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
+
+REQUEST_LATENCY_SIMPLE = Histogram(
+    "app_request_latency_seconds",
+    "Request latency",
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
 
 CACHE_HITS = Counter(
     "rag_cache_hits_total",
@@ -10,6 +35,37 @@ CACHE_MISSES = Counter(
     "rag_cache_misses_total",
     "Total number of cache misses (query not found in Redis)",
     labelnames=["endpoint"],
+)
+
+SEMANTIC_CACHE_HITS = Counter(
+    "rag_semantic_cache_hits_total",
+    "Total number of Redis semantic cache hits",
+    labelnames=["endpoint"],
+)
+
+SEMANTIC_CACHE_MISSES = Counter(
+    "rag_semantic_cache_misses_total",
+    "Total number of Redis semantic cache misses",
+    labelnames=["endpoint", "reason"],
+)
+
+SEMANTIC_CACHE_BYPASSES = Counter(
+    "rag_semantic_cache_bypasses_total",
+    "Total number of semantic cache bypasses",
+    labelnames=["endpoint", "reason"],
+)
+
+SEMANTIC_CACHE_DISTANCE = Histogram(
+    "rag_semantic_cache_distance",
+    "Semantic cache cosine distance for accepted hits",
+    labelnames=["endpoint"],
+    buckets=[0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5],
+)
+
+SEMANTIC_CACHE_STORES = Counter(
+    "rag_semantic_cache_stores_total",
+    "Total number of semantic cache store attempts",
+    labelnames=["endpoint", "status"],
 )
 
 EMBEDDING_LATENCY = Histogram(
@@ -57,3 +113,8 @@ SERVICE_HEALTH = Gauge(
     "Health status of downstream services (1=healthy, 0=unhealthy)",
     labelnames=["service"],
 )
+
+
+def render_metrics() -> tuple[bytes, str]:
+    """Render all registered Prometheus metrics for the /metrics endpoint."""
+    return generate_latest(), CONTENT_TYPE_LATEST

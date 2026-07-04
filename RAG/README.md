@@ -85,7 +85,57 @@ cp .env.example .env
 docker compose up -d
 ```
 
-This starts: OpenSearch, PostgreSQL, Redis, Langfuse, Prometheus, Grafana, Loki, Promtail, StatsD exporter, Nginx.
+This starts: OpenSearch, PostgreSQL with the `pg_embedding` extension, Redis, Langfuse, Prometheus, Grafana, Loki, Promtail, StatsD exporter, Nginx.
+
+The default search backend is PostgreSQL `pg_embedding`:
+
+```bash
+SEARCH__BACKEND=postgres_embedding
+SEARCH__VECTOR_DIMENSION=1024
+SEARCH__HYBRID_CANDIDATE_MULTIPLIER=2
+SEARCH__RRF_CONSTANT=60
+```
+
+OpenSearch remains available as a rollback path:
+
+```bash
+SEARCH__BACKEND=opensearch
+```
+
+Semantic answer caching is disabled by default. It requires Redis Stack or another
+Redis endpoint with RediSearch vector commands; the plain local Redis service is
+enough for exact-match caching only.
+
+```bash
+REDIS__SEMANTIC_CACHE_ENABLED=false
+```
+
+To test semantic caching locally, run Redis Stack on port 6379 or point
+`REDIS__HOST`/`REDIS__PORT` at a vector-capable Redis endpoint, then enable:
+
+```bash
+REDIS__SEMANTIC_CACHE_ENABLED=true
+REDIS__SEMANTIC_CACHE_LOOKUP_ENABLED=true
+REDIS__SEMANTIC_CACHE_STORE_ENABLED=true
+REDIS__SEMANTIC_CACHE_SCOPE_VERSION=v1
+REDIS__SEMANTIC_CACHE_DISTANCE_THRESHOLD=0.08
+```
+
+The API checks Redis capability at startup. If `FT._LIST` is unavailable, it
+keeps serving live RAG and records semantic-cache bypasses instead of failing
+startup. Rotate `REDIS__SEMANTIC_CACHE_SCOPE_VERSION` after ingestion, prompt,
+search, or chunking changes so old semantic answers cannot match new behavior.
+
+`pg_embedding` is archived upstream and is intentionally pinned here for compatibility with the Postgres vector backend. The local Postgres image builds the extension from tag `0.3.6` (`055b71946024d72abecd8302fcfa17fe1bfb22f1`).
+
+If you already have a `postgres_data` volume from the plain `postgres` image, rebuild and recreate the Postgres container so the extension exists:
+
+```bash
+docker compose build postgres
+docker compose down
+docker volume rm rag_postgres_data
+docker compose up -d postgres
+```
 
 ### 3. Start an ingestion orchestrator (pick one)
 
@@ -150,7 +200,7 @@ npm run dev    # http://localhost:3004
 | Concern         | Technology                        |
 |-----------------|-----------------------------------|
 | Embeddings      | Jina AI v3, 1024-dim              |
-| Vector search   | OpenSearch RRF (BM25 + kNN)       |
+| Vector search   | PostgreSQL `pg_embedding` by default; OpenSearch fallback |
 | Local LLM       | Ollama `llama3.2:1b`              |
 | Agentic RAG     | LangGraph                         |
 | Checkpointing   | `AsyncPostgresSaver` (psycopg3)   |

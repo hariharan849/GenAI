@@ -46,6 +46,21 @@ Promtail ships container logs from Docker socket to Loki. The StatsD exporter co
 
 ---
 
+## Redis Cache Modes
+
+Plain Redis supports the existing exact-match cache for `/ask` and `/stream`.
+Semantic final-answer caching is disabled by default and requires Redis Stack
+or another Redis deployment with RediSearch vector commands. The API checks
+`FT._LIST` at startup; if unsupported, semantic cache is bypassed and the app
+continues serving live RAG.
+
+For AWS, do not enable `REDIS__SEMANTIC_CACHE_ENABLED=true` unless the Redis
+layer exposes RediSearch/vector search. When rolling out a new ingestion,
+prompt, search backend, or chunking configuration, rotate
+`REDIS__SEMANTIC_CACHE_SCOPE_VERSION` or drop the semantic cache index.
+
+---
+
 ## Nginx
 
 `infra/nginx/nginx.conf` configures:

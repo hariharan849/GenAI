@@ -7,6 +7,7 @@ services are required.
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -134,7 +135,11 @@ def test_os_bulk_remote_all_success():
     mock_os = MagicMock()
     mock_os.client.bulk.return_value = mock_resp
 
-    with patch("nuke_ingestion.indexing.make_opensearch_client_fresh", return_value=mock_os):
+    settings = SimpleNamespace(search=SimpleNamespace(backend="opensearch"))
+    with (
+        patch("nuke_ingestion.indexing.get_settings", return_value=settings),
+        patch("nuke_ingestion.indexing.make_opensearch_client_fresh", return_value=mock_os),
+    ):
         result = _os_bulk_remote(batch)
 
     assert result["indexed"] == [2]
@@ -162,12 +167,44 @@ def test_os_bulk_remote_partial_error():
     mock_os = MagicMock()
     mock_os.client.bulk.return_value = mock_resp
 
-    with patch("nuke_ingestion.indexing.make_opensearch_client_fresh", return_value=mock_os):
+    settings = SimpleNamespace(search=SimpleNamespace(backend="opensearch"))
+    with (
+        patch("nuke_ingestion.indexing.get_settings", return_value=settings),
+        patch("nuke_ingestion.indexing.make_opensearch_client_fresh", return_value=mock_os),
+    ):
         result = _os_bulk_remote(batch)
 
     assert result["indexed"] == [1]
     assert "pid2" in result["error_page_ids"][0]
     assert "pid1" not in result["error_page_ids"][0]
+
+
+def test_bulk_remote_postgres_backend_uses_search_client():
+    batch = {
+        "page_id": ["00000000-0000-0000-0000-000000000001"],
+        "chunk_text": ["chunk A"],
+        "chunk_index": [0],
+        "url": ["https://example.com/a.html"],
+        "nuke_node_name": ["A"],
+        "section": ["s"],
+        "section_title": ["Overview"],
+        "embedding": [np.zeros(1024, dtype=np.float32)],
+    }
+    settings = SimpleNamespace(search=SimpleNamespace(backend="postgres_embedding"))
+    search_client = MagicMock()
+    search_client.bulk_index_chunks.return_value = {"success": 1, "failed": 0, "failed_page_ids": []}
+
+    with (
+        patch("nuke_ingestion.indexing.get_settings", return_value=settings),
+        patch("nuke_ingestion.indexing.make_search_client_fresh", return_value=search_client),
+    ):
+        result = _os_bulk_remote(batch)
+
+    assert result["indexed"] == [1]
+    assert result["error_page_ids"] == [""]
+    sent = search_client.bulk_index_chunks.call_args.args[0][0]
+    assert sent["chunk_data"]["section_name"] == "Overview"
+    assert sent["chunk_data"]["chunk_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +220,7 @@ def test_index_nuke_docs_ray_empty_pages():
     with (
         patch.dict(sys.modules, {"ray": mock_ray, "ray.data": MagicMock()}),
         patch("nuke_ingestion.indexing._load_unindexed_pages_from_db", return_value=[]),
+        patch("nuke_ingestion.indexing.get_settings", return_value=SimpleNamespace(search=SimpleNamespace(backend="opensearch"))),
         patch("nuke_ingestion.indexing.make_opensearch_client_fresh") as mock_os_factory,
     ):
         mock_os = MagicMock()
@@ -191,5 +229,5 @@ def test_index_nuke_docs_ray_empty_pages():
 
         result = index_nuke_docs_ray()
 
-    assert result == {"pages_indexed": 0, "chunks_indexed": 0}
+    assert result == {"pages_indexed": 0, "chunks_indexed": 0, "indexed_page_ids": []}
     mock_ray.shutdown.assert_called_once()

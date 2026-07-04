@@ -3,6 +3,7 @@ import logging
 import redis
 from api.config import Settings
 from api.services.cache.client import CacheClient
+from api.services.cache.semantic import SemanticCacheClient
 
 logger = logging.getLogger(__name__)
 
@@ -47,3 +48,21 @@ def make_cache_client(settings: Settings) -> CacheClient:
     except Exception as e:
         logger.error(f"Failed to create cache client: {e}")
         raise
+
+
+def make_semantic_cache_client(settings: Settings, redis_client: redis.Redis | None = None) -> SemanticCacheClient | None:
+    """Create semantic cache client when enabled.
+
+    Capability/index setup is async because Redis vector commands can be slow and
+    should be bounded by the client timeout during FastAPI lifespan.
+    """
+    if not settings.redis.semantic_cache_enabled:
+        logger.info("Semantic cache disabled by configuration")
+        return None
+
+    try:
+        client = redis_client or make_redis_client(settings)
+        return SemanticCacheClient(client, settings)
+    except Exception as e:
+        logger.warning("Failed to create semantic cache client; semantic cache disabled: %s", e)
+        return None

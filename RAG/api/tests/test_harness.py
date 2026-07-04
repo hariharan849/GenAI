@@ -26,6 +26,9 @@ async def test_run_case_happy_path(mock_agentic_rag_service: MagicMock) -> None:
             result = await run_case(mock_agentic_rag_service, _make_case(), judge_model="gpt-4o-mini")
 
     assert result.status == "scored"
+    assert result.actual_output == "Nuke uses nodes for compositing."
+    assert result.retrieval_context == ["Context chunk 1", "Context chunk 2"]
+    assert result.expected_output == "The Merge node composites two inputs."
     assert "FaithfulnessMetric" in result.scores
 
 
@@ -37,6 +40,7 @@ async def test_run_case_service_error() -> None:
     result = await run_case(service, _make_case(), judge_model="gpt-4o-mini")
 
     assert result.status == "errored"
+    assert result.expected_output == "The Merge node composites two inputs."
     assert "Ollama timeout" in (result.error or "")
 
 
@@ -51,7 +55,7 @@ async def test_run_harness_from_cases_progress_cb(mock_agentic_rag_service: Magi
 
     with patch("api.evaluation.harness.run_case", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = CaseResult(
-            case_id="x", question="q", status="scored", scores={"F": 0.8}
+            case_id="x", question="q", expected_output="a", status="scored", scores={"F": 0.8}
         )
         results = await run_harness_from_cases(
             mock_agentic_rag_service, cases, judge_model="gpt-4o-mini", progress_cb=_cb
@@ -72,7 +76,7 @@ async def test_run_harness_from_cases_no_progress_cb(mock_agentic_rag_service: M
     cases = [_make_case()]
     with patch("api.evaluation.harness.run_case", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = CaseResult(
-            case_id="test-1", question="q", status="scored", scores={}
+            case_id="test-1", question="q", expected_output="a", status="scored", scores={}
         )
         # Should not raise even with progress_cb=None
         results = await run_harness_from_cases(mock_agentic_rag_service, cases, "gpt-4o-mini")

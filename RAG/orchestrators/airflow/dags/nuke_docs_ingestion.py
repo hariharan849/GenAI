@@ -6,6 +6,7 @@ from pathlib import Path
 from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 
+from nuke_ingestion.graph import extract_nuke_kg
 from nuke_ingestion.indexing import index_nuke_docs_ray
 from nuke_ingestion.reporting import generate_nuke_report
 from nuke_ingestion.save import save_nuke_pages
@@ -94,6 +95,13 @@ report_task = PythonOperator(
     dag=dag,
 )
 
+kg_task = PythonOperator(
+    task_id="extract_nuke_kg",
+    python_callable=extract_nuke_kg,
+    execution_timeout=timedelta(minutes=20),
+    dag=dag,
+)
+
 cleanup_task = PythonOperator(
     task_id="cleanup_temp_files",
     python_callable=cleanup_nuke_temp,
@@ -101,4 +109,4 @@ cleanup_task = PythonOperator(
     dag=dag,
 )
 
-setup_task >> scrape_task >> save_task >> index_task >> report_task >> cleanup_task
+setup_task >> scrape_task >> save_task >> index_task >> kg_task >> report_task >> cleanup_task

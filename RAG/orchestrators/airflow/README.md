@@ -31,6 +31,22 @@ Trigger the DAG from the Airflow UI or via:
 docker exec airflow-webserver airflow dags trigger nuke_docs_ingestion
 ```
 
+**`nuke_kg_extraction`** — manually triggered KG-only backfill. It does not
+scrape or index docs; it reads indexed PostgreSQL pages where `kg_extracted` is
+false and writes triples to Neo4j.
+
+Run pending KG extraction only:
+
+```bash
+docker exec airflow-webserver airflow dags trigger nuke_kg_extraction
+```
+
+Reset indexed pages to pending KG first, then extract:
+
+```bash
+docker exec airflow-webserver airflow dags trigger nuke_kg_extraction --conf '{"reset_kg_extracted": true}'
+```
+
 ---
 
 ## Directory Structure

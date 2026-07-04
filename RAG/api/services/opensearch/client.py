@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 class OpenSearchClient:
     """OpenSearch client supporting BM25 and hybrid search with native RRF."""
 
+    backend_name = "opensearch"
+
     def __init__(self, host: str, settings: Settings):
         self.host = host
         self.settings = settings
@@ -358,8 +360,11 @@ class OpenSearchClient:
             for chunk in chunks:
                 chunk_data = chunk["chunk_data"].copy()
                 chunk_data["embedding"] = chunk["embedding"]
+                doc_id = chunk_data.pop("_id", None) or chunk_data.get("chunk_id")
 
                 action = {"_index": self.index_name, "_source": chunk_data}
+                if doc_id:
+                    action["_id"] = doc_id
                 actions.append(action)
 
             success, failed = helpers.bulk(self.client, actions, refresh=True)
@@ -370,4 +375,3 @@ class OpenSearchClient:
         except Exception as e:
             logger.error(f"Bulk chunk indexing error: {e}")
             raise
-

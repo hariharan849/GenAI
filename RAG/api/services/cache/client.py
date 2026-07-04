@@ -27,6 +27,7 @@ class CacheClient:
             "top_k": request.top_k,
             "use_hybrid": request.use_hybrid,
             "categories": sorted(request.categories) if request.categories else [],
+            "knowledge_source": getattr(request, "knowledge_source", "nuke"),
         }
         key_string = json.dumps(key_data, sort_keys=True)
         key_hash = hashlib.sha256(key_string.encode()).hexdigest()[:16]

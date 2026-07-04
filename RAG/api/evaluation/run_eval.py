@@ -10,7 +10,7 @@ from api.services.agents.factory import make_agentic_rag_service
 from api.services.embeddings.factory import make_embeddings_service
 from api.services.langfuse.factory import make_langfuse_tracer
 from api.services.ollama.factory import make_ollama_client
-from api.services.opensearch.factory import make_opensearch_client
+from api.search.factory import make_search_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -39,13 +39,13 @@ async def main() -> None:
     if settings.eval.openai_api_key:
         os.environ.setdefault("OPENAI_API_KEY", settings.eval.openai_api_key)
 
-    opensearch_client = make_opensearch_client(settings)
+    search_client = make_search_client(settings)
     embeddings_client = make_embeddings_service(settings)
     ollama_client = make_ollama_client()
     langfuse_tracer = make_langfuse_tracer()
 
     service = make_agentic_rag_service(
-        opensearch_client=opensearch_client,
+        search_client=search_client,
         ollama_client=ollama_client,
         embeddings_client=embeddings_client,
         langfuse_tracer=langfuse_tracer,

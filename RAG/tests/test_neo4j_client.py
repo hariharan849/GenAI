@@ -1,20 +1,11 @@
 """Unit tests for Neo4jClient.write_triples()."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from api.services.graph.client import Neo4jClient
 from api.services.graph.extraction import Triple
-
-
-def _make_client() -> Neo4jClient:
-    with patch("api.services.graph.client.AsyncGraphDatabase") if False else patch(
-        "neo4j.AsyncGraphDatabase.driver"
-    ):
-        client = Neo4jClient.__new__(Neo4jClient)
-        mock_driver = MagicMock()
-        client._driver = mock_driver
-        return client, mock_driver
 
 
 @pytest.fixture
@@ -35,10 +26,24 @@ def client_and_driver():
 async def test_write_triples_happy_path(client_and_driver):
     client, mock_session = client_and_driver
     triples = [
-        Triple(entity_a="Blur", relationship="ACCEPTS_INPUT", entity_b="Read"),
-        Triple(entity_a="Blur", relationship="OUTPUTS_TO", entity_b="Write"),
+        Triple(
+            subject_name="Blur",
+            subject_type="NukeNode",
+            predicate="HAS_KNOB",
+            object_name="Size",
+            object_type="Knob",
+        ),
+        Triple(
+            subject_name="Size",
+            subject_type="Knob",
+            predicate="KNOB_CONTROLS",
+            object_name="blur radius",
+            object_type="Operation",
+        ),
     ]
+
     written = await client.write_triples(triples)
+
     assert written == 2
     assert mock_session.run.call_count == 2
 
@@ -52,21 +57,63 @@ async def test_write_triples_empty_list(client_and_driver):
 
 
 @pytest.mark.asyncio
-async def test_write_triples_similar_to(client_and_driver):
+async def test_write_triples_uses_typed_labels_and_predicate(client_and_driver):
     client, mock_session = client_and_driver
-    triples = [Triple(entity_a="Blur", relationship="SIMILAR_TO", entity_b="Defocus")]
+    triples = [
+        Triple(
+            subject_name="Blur",
+            subject_type="NukeNode",
+            predicate="ACCEPTS_INPUT",
+            object_name="2D image",
+            object_type="InputType",
+        )
+    ]
+
     written = await client.write_triples(triples)
+
     assert written == 1
     call_args = mock_session.run.call_args
-    assert "SIMILAR_TO" in call_args[0][0]
-    assert call_args[1]["ea"] == "Blur"
-    assert call_args[1]["eb"] == "Defocus"
+    cypher = call_args[0][0]
+    assert "MERGE (a:NukeNode" in cypher
+    assert "MERGE (b:InputType" in cypher
+    assert "[:ACCEPTS_INPUT]" in cypher
+    assert call_args[1]["subject_name"] == "Blur"
+    assert call_args[1]["subject_type"] == "NukeNode"
+    assert call_args[1]["object_name"] == "2D image"
+    assert call_args[1]["object_type"] == "InputType"
+
+
+@pytest.mark.asyncio
+async def test_write_triples_skips_unknown_fact_shape(client_and_driver):
+    client, mock_session = client_and_driver
+    triples = [
+        SimpleNamespace(
+            subject_name="Blur",
+            subject_type="Tool",
+            predicate="HAS_KNOB",
+            object_name="Size",
+            object_type="Knob",
+        )
+    ]
+
+    written = await client.write_triples(triples)
+
+    assert written == 0
+    mock_session.run.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_write_triples_neo4j_unreachable(client_and_driver):
     client, mock_session = client_and_driver
     mock_session.run = AsyncMock(side_effect=Exception("ServiceUnavailable"))
-    triples = [Triple(entity_a="Blur", relationship="ACCEPTS_INPUT", entity_b="Read")]
+    triples = [
+        Triple(
+            subject_name="Blur",
+            subject_type="NukeNode",
+            predicate="HAS_KNOB",
+            object_name="Size",
+            object_type="Knob",
+        )
+    ]
     written = await client.write_triples(triples)
     assert written == 0

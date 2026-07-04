@@ -21,14 +21,12 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ARG VERSION=0.1.0
 ENV APP_VERSION=$VERSION
+ENV API_WORKERS=1
 
 COPY --from=base /app /app
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc
-RUN mkdir -p /tmp/prometheus_multiproc
-
 EXPOSE 8000
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS}"]

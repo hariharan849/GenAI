@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from ..dependencies import DatabaseDep, OpenSearchDep, SettingsDep
+from ..dependencies import DatabaseDep, SearchDep, SettingsDep
 from ..metrics import SERVICE_HEALTH
 from ..schemas.api.health import HealthResponse, ServiceStatus
 from ..services.ollama import OllamaClient
@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check(settings: SettingsDep, database: DatabaseDep, opensearch_client: OpenSearchDep) -> HealthResponse:
+async def health_check(settings: SettingsDep, database: DatabaseDep, search_client: SearchDep) -> HealthResponse:
     """Comprehensive health check endpoint for monitoring and load balancer probes.
 
     :returns: Service health status with version and connectivity checks
@@ -40,19 +40,28 @@ async def health_check(settings: SettingsDep, database: DatabaseDep, opensearch_
             session.execute(text("SELECT 1"))
         return ServiceStatus(status="healthy", message="Connected successfully")
 
-    # OpenSearch check
-    def _check_opensearch():
-        if not opensearch_client.health_check():
+    # Search backend check
+    def _check_search():
+        if not search_client.health_check():
             return ServiceStatus(status="unhealthy", message="Not responding")
-        stats = opensearch_client.get_index_stats()
+        stats = search_client.get_index_stats()
+        readiness = ""
+        if search_client.backend_name == "postgres_embedding":
+            readiness = (
+                f", extension_ready={stats.get('extension_ready', False)}, "
+                f"schema_ready={stats.get('schema_ready', False)}"
+            )
         return ServiceStatus(
             status="healthy",
-            message=f"Index '{stats.get('index_name', 'unknown')}' with {stats.get('document_count', 0)} documents",
+            message=(
+                f"backend={search_client.backend_name}, index '{stats.get('index_name', 'unknown')}' "
+                f"with {stats.get('document_count', 0)} chunks{readiness}"
+            ),
         )
 
     # Run synchronous checks
     _check_service("database", _check_database)
-    _check_service("opensearch", _check_opensearch)
+    _check_service("search", _check_search)
 
     # Handle Ollama async check separately
     try:
@@ -67,7 +76,7 @@ async def health_check(settings: SettingsDep, database: DatabaseDep, opensearch_
 
     # Update Prometheus service health gauges
     SERVICE_HEALTH.labels(service="database").set(1 if services.get("database", ServiceStatus(status="unhealthy")).status == "healthy" else 0)
-    SERVICE_HEALTH.labels(service="opensearch").set(1 if services.get("opensearch", ServiceStatus(status="unhealthy")).status == "healthy" else 0)
+    SERVICE_HEALTH.labels(service="search").set(1 if services.get("search", ServiceStatus(status="unhealthy")).status == "healthy" else 0)
     SERVICE_HEALTH.labels(service="ollama").set(1 if services.get("ollama", ServiceStatus(status="unhealthy")).status == "healthy" else 0)
 
     return HealthResponse(
