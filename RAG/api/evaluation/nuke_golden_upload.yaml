@@ -1,0 +1,197 @@
+# Upload-ready golden dataset for the Eval Console.
+#
+# Source: currently ingested Foundry Nuke 17.0 docs in the local nuke_pages table.
+# Upload this file at /eval to run the DeepEval harness against Nuke documentation.
+
+cases:
+  - case_id: nuke_blur_basics
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/filter_nodes/blur.html"
+    question: "What does the Blur node do, what algorithms can it use, and what does the size control affect?"
+    expected_output: >
+      The Blur node adds blur to an image or matte using box, triangle, quadratic,
+      or gaussian filter algorithms. It calculates blur values by examining
+      neighboring pixels within the constraints of the size control, measured in
+      pixels. The default gaussian algorithm produces the smoothest blur but takes
+      longer to render.
+    expected_retrieval_context:
+      - >
+        Blur adds blur to an image or matte using box, triangle, quadratic, or
+        gaussian filter algorithms. The blur value is calculated for image pixels
+        by examining their neighbors within the constraints of the size control
+        in pixels, and applying the selected algorithms.
+
+  - case_id: nuke_blur_inputs
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/filter_nodes/blur.html"
+    question: "What inputs does the Blur node accept, and how is the mask input used?"
+    expected_output: >
+      Blur accepts an unnamed image sequence input to blur and an optional mask
+      input. By default, the blur effect is limited to the non-black areas of the
+      mask. The mask input can appear as a triangle on the right side of the node
+      and turns into an arrow labeled mask when dragged.
+    expected_retrieval_context:
+      - >
+        Input unnamed is the image sequence to blur. The mask input is an optional
+        image to use as a mask. By default, the blur effect is limited to the
+        non-black areas of the mask.
+
+  - case_id: nuke_merge_premultiplied_inputs
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/merge_nodes/merge.html"
+    question: "What does the Merge node do, and what does Nuke expect for most merge algorithms?"
+    expected_output: >
+      Merge layers multiple images together. The selected compositing algorithm
+      determines how pixel values from one input are calculated with pixel values
+      from the other input to produce the merged output. For most merge
+      algorithms, Nuke expects premultiplied input images; the matte operation is
+      an exception where unpremultiplied images should be used.
+    expected_retrieval_context:
+      - >
+        Merge allows you to layer multiple images together. You need to select a
+        compositing algorithm that determines how the pixel values from one input
+        are calculated with the pixel values from the other to create the new
+        output pixel values.
+      - >
+        When using most of the available merge algorithms, Nuke expects
+        premultiplied input images. However, with the matte operation you should
+        use unpremultiplied images.
+
+  - case_id: nuke_premult_unpremult_workflow
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/merge_nodes/unpremult.html"
+    question: "What is the recommended workflow for color correcting premultiplied images before merging them?"
+    expected_output: >
+      First connect an Unpremult node to divide the image RGB channels by alpha
+      and make the image unpremultiplied. Then perform the color correction.
+      Finally add a Premult node to multiply RGB by alpha again before merging,
+      because Merge nodes in Nuke expect premultiplied images.
+    expected_retrieval_context:
+      - >
+        When you color correct premultiplied images, you should first connect an
+        Unpremult node to the image to turn the image into an unpremultiplied one.
+        Then, apply the color correction. Finally, add a Premult node to return
+        the image to its original premultiplied state.
+      - >
+        Because Merge nodes in Nuke expect premultiplied images, you should use
+        Premult before any Merge operations if your input images are
+        unpremultiplied.
+
+  - case_id: nuke_read_node_imports
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/image_nodes/read.html"
+    question: "What does the Read node load, how does it treat imported sequences, and how does it determine file format?"
+    expected_output: >
+      The Read node loads images from disk using the native resolution and frame
+      range for the sequence. It converts imported sequences to Nuke's native
+      32-bit linear RGB colorspace. It supports many formats, including Cineon,
+      TIFF, Alembic, PSD, OpenEXR, HDRI, DPX, R3D, ARRIRAW, DNG, and RAW camera
+      data, and uses the file name extension to determine the format.
+    expected_retrieval_context:
+      - >
+        This node loads images from disk, using the native resolution and the frame
+        range for the sequence. It converts all imported sequences to Nuke's native
+        32-bit linear RGB colorspace.
+      - >
+        The Read node supports multiple file formats, such as Cineon, TIFF,
+        Alembic, PSD, OpenEXR, HDRI, DPX, R3D, ARRIRAW, DNG, and RAW camera data.
+        It uses the file name extension to determine the format.
+
+  - case_id: nuke_write_node_rendering
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/image_nodes/write.html"
+    question: "What does the Write node render and where is it usually placed in a compositing tree?"
+    expected_output: >
+      The Write node renders the result of upstream nodes and saves the result to
+      disk. It is usually placed at the bottom of the compositing tree to render
+      the final output, but because Write nodes have both input and output
+      connectors they can also be embedded anywhere in the tree.
+    expected_retrieval_context:
+      - >
+        This node renders the result of all upstream nodes and saves the result to
+        disk. You would usually place one Write node at the bottom of the
+        compositing tree to render the final output.
+      - >
+        Write nodes have both input and output connectors, so you can embed them
+        anywhere in the compositing tree.
+
+  - case_id: nuke_grade_sampling_and_matching
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/color_nodes/grade.html"
+    question: "How can the Grade node be used to set black and white points, and what matching task can it help with?"
+    expected_output: >
+      Grade lets you define white and black points by sampling pixels from the
+      Viewer. Setting the brightest areas to pure white and the darkest areas to
+      pure black can add punch to overexposed images. The node can also be used
+      to match foreground plates to background plates.
+    expected_retrieval_context:
+      - >
+        Grade lets you define white and black points by sampling pixels from the
+        Viewer. Setting the brightest parts of the image to pure white and the
+        darkest to pure black can help you add punch to overexposed images.
+      - >
+        You can also use this node for matching foreground plates to background
+        plates.
+
+  - case_id: nuke_shuffle_channel_operations
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/channel_nodes/shuffle.html"
+    question: "What channel operations can Shuffle perform?"
+    expected_output: >
+      Shuffle can rearrange up to eight channels from a single image, rearrange
+      channels between two separate nodes, replace a channel with black or white,
+      and create new channels. For simply copying a channel from one data stream
+      into another, the documentation points to Copy.
+    expected_retrieval_context:
+      - >
+        Shuffle lets you rearrange up to 8 channels from a single image, rearrange
+        channels between two separate nodes, replace a channel with black or with
+        white, and create new channels.
+      - >
+        To simply copy a channel from one data stream into another, see Copy.
+
+  - case_id: nuke_roto_core_workflow
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/draw_nodes/roto.html"
+    question: "When is the Roto node an appropriate choice, and what is the basic workflow for creating shapes?"
+    expected_output: >
+      Roto is an appropriate choice when you are doing rotoscoping only, because
+      it lets you create and edit Bezier and B-spline shapes. The basic workflow
+      is to select a tool from the left Viewer toolbar, adjust its settings above
+      the Viewer, then draw shapes by placing points in the Viewer.
+    expected_retrieval_context:
+      - >
+        The Roto node is an optimal choice if you're doing rotoscoping only - it
+        allows you to create and edit Bezier and B-spline shapes.
+      - >
+        As a general workflow guide, select your tool from the left-hand Viewer
+        toolbar, use the Roto tool settings above the Viewer to adjust the tool's
+        properties, and draw your shape or shapes.
+
+  - case_id: nuke_transform_controls
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/transform_nodes/transform.html"
+    question: "What transformations can the Transform node apply from one control panel?"
+    expected_output: >
+      Transform can translate, rotate, scale, and skew image elements from a
+      single control panel. Its unnamed input is the image to translate, rotate,
+      scale, or skew. The translate, rotate, scale, skew X, and skew Y controls
+      adjust those operations.
+    expected_retrieval_context:
+      - >
+        Transform lets you not only translate elements, but also rotate, scale,
+        and skew them from a single control panel.
+      - >
+        Input unnamed is the image to translate, rotate, scale, or skew.
+
+  - case_id: nuke_camera_scene_and_projection
+    url: "https://learn.foundry.com/nuke/17.0/content/reference_guide/3d_nodes/camera.html"
+    question: "How are Camera nodes used with Scene and ScanlineRender, and what else can cameras do in a 3D scene?"
+    expected_output: >
+      Cameras can connect to either a Scene node or a ScanlineRender node. A
+      camera connected to ScanlineRender defines the projection used by the 3D
+      renderer. Additional cameras can be connected to the Scene node and selected
+      from the Viewer camera dropdown. Cameras can also project 2D textures onto
+      3D objects using the Projection tab controls and a Project3D node.
+    expected_retrieval_context:
+      - >
+        Cameras may be connected to either the Scene node or the ScanlineRender
+        node. Camera connected to a ScanlineRender node define the projection for
+        use by the 3D renderer.
+      - >
+        You can connect additional cameras to the Scene node and switch between
+        them by choosing the viewing camera from the dropdown menu at the top of
+        the Viewer.
+      - >
+        Cameras can also be used to project 2D textures onto 3D objects in a scene
+        using the controls on the Projection tab and a Project3D node.

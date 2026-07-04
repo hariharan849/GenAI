@@ -1,0 +1,2 @@
+"""Reusable ingestion domain package."""
+

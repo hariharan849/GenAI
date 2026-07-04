@@ -14,6 +14,7 @@ services:
       - ${ENV_FILE_PATH:-.env}
     environment:
       - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@${INFRA_HOST}:5432/rag_db
+      - SEARCH__BACKEND=${SEARCH__BACKEND:-postgres_embedding}
       - OPENSEARCH__HOST=http://${INFRA_HOST}:9200
       - REDIS__HOST=${INFRA_HOST}
       - REDIS__PORT=6379

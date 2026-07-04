@@ -3,8 +3,8 @@ import "./globals.css";
 import { CopilotKit } from "@copilotkit/react-core";
 
 export const metadata: Metadata = {
-  title: "arXiv Research Assistant",
-  description: "AI-powered arXiv paper search and Q&A using CopilotKit",
+  title: "Nuke Docs Assistant",
+  description: "AI-powered Nuke documentation search and Q&A using CopilotKit",
 };
 
 export default function RootLayout({

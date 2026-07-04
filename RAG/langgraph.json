@@ -1,0 +1,9 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "agentic_rag": "api/services/agents/langgraph_local.py:agentic_rag"
+  },
+  "env": ".env"
+}

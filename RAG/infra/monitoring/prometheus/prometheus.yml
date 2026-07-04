@@ -5,8 +5,14 @@ global:
     environment: development
     project: arxiv-rag
 
+# Load alerting rules
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
 alerting:
-  alertmanagers: []
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
 

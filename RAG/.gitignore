@@ -4,10 +4,17 @@
 /logs/
 /plugins/
 /config/
+/airflow/
 
 # Airflow internal runtime dirs — wildcard covers both pre- and post-move paths
 **/airflow/airflow/
 **/airflow/src/
+
+# Local runtime caches
+/.langgraph_api/
+/.pytest_cache/
+/.deepeval/
+ui/tsconfig.tsbuildinfo
 
 # Gstack planning artifacts
 PLAN*.md

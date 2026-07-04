@@ -56,6 +56,21 @@ class OpenSearchSettings(BaseConfigSettings):
     hybrid_search_size_multiplier: int = 2  # Get k*multiplier for better recall
 
 
+class SearchSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="SEARCH__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    backend: Literal["postgres_embedding", "opensearch"] = "postgres_embedding"
+    vector_dimension: int = 1024
+    hybrid_candidate_multiplier: int = 2
+    rrf_constant: int = 60
+
+
 class LangfuseSettings(BaseConfigSettings):
     model_config = SettingsConfigDict(
         env_file=[".env", str(ENV_FILE_PATH)],
@@ -95,6 +110,21 @@ class RedisSettings(BaseConfigSettings):
 
     # Cache settings
     ttl_hours: int = 6  # Cache TTL in hours
+
+    # Semantic cache settings. Disabled by default because it requires Redis Stack
+    # / RediSearch vector commands, not plain Redis.
+    semantic_cache_enabled: bool = False
+    semantic_cache_lookup_enabled: bool = True
+    semantic_cache_store_enabled: bool = True
+    semantic_cache_ask_enabled: bool = True
+    semantic_cache_stream_enabled: bool = True
+    semantic_cache_agentic_enabled: bool = False
+    semantic_cache_namespace: str = "rag-semantic-cache"
+    semantic_cache_scope_version: str = "v1"
+    semantic_cache_ttl_hours: int = 6
+    semantic_cache_distance_threshold: float = 0.08
+    semantic_cache_max_results: int = 1
+    semantic_cache_operation_timeout_seconds: float = 0.25
 
 
 
@@ -166,6 +196,7 @@ class Settings(BaseConfigSettings):
     jina_api_key: str = ""
 
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
+    search: SearchSettings = Field(default_factory=SearchSettings)
     opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)

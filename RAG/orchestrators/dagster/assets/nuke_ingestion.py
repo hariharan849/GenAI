@@ -84,11 +84,22 @@ def indexed_nuke_docs(context: AssetExecutionContext, saved_nuke_pages: dict) ->
     return stats
 
 
+@asset(group_name="nuke_ingestion", description="Nuke knowledge graph triples extracted into Neo4j")
+def extracted_nuke_kg(context: AssetExecutionContext, indexed_nuke_docs: dict) -> dict:
+    from api.services.graph.ingestion import extract_kg_for_indexed_pages
+
+    stats = extract_kg_for_indexed_pages(indexed_nuke_docs.get("indexed_page_ids", []))
+    context.log.info(f"KG extraction stats: {stats}")
+    context.add_output_metadata({k: MetadataValue.text(str(v)) for k, v in stats.items()})
+    return stats
+
+
 @asset(group_name="nuke_ingestion", description="Summary report of the Nuke ingestion run")
 def nuke_ingestion_report(
     context: AssetExecutionContext,
     saved_nuke_pages: dict,
     indexed_nuke_docs: dict,
+    extracted_nuke_kg: dict,
 ) -> dict:
     report = {
         "pages_scraped": saved_nuke_pages.get("pages_scraped", 0),
@@ -96,6 +107,10 @@ def nuke_ingestion_report(
         "dupes_skipped": saved_nuke_pages.get("dupes_skipped", 0),
         "pages_indexed": indexed_nuke_docs.get("pages_indexed", 0),
         "chunks_indexed": indexed_nuke_docs.get("chunks_indexed", 0),
+        "kg_pages_extracted": extracted_nuke_kg.get("kg_pages_extracted", 0),
+        "kg_pages_failed": extracted_nuke_kg.get("kg_pages_failed", 0),
+        "kg_triples_written": extracted_nuke_kg.get("kg_triples_written", 0),
+        "kg_skipped": extracted_nuke_kg.get("kg_skipped", False),
         "completed_at": datetime.now().isoformat(),
     }
     context.log.info(f"Nuke ingestion report: {report}")

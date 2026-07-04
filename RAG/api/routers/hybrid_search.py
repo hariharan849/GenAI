@@ -2,7 +2,7 @@ import logging
 import time
 
 from fastapi import APIRouter, HTTPException
-from api.dependencies import EmbeddingsDep, OpenSearchDep
+from api.dependencies import EmbeddingsDep, SearchDep
 from api.metrics import EMBEDDING_LATENCY, SEARCH_LATENCY, SEARCH_RESULTS_COUNT
 from api.schemas.api.search import HybridSearchRequest, SearchHit, SearchResponse
 
@@ -13,13 +13,13 @@ router = APIRouter(prefix="/hybrid-search", tags=["hybrid-search"])
 
 @router.post("/", response_model=SearchResponse)
 async def hybrid_search(
-    request: HybridSearchRequest, opensearch_client: OpenSearchDep, embeddings_service: EmbeddingsDep
+    request: HybridSearchRequest, search_client: SearchDep, embeddings_service: EmbeddingsDep
 ) -> SearchResponse:
     """
     Hybrid search endpoint supporting multiple search modes.
     """
     try:
-        if not opensearch_client.health_check():
+        if not search_client.health_check():
             raise HTTPException(status_code=503, detail="Search service is currently unavailable")
 
         query_embedding = None
@@ -37,7 +37,7 @@ async def hybrid_search(
         logger.info(f"Hybrid search: '{request.query}' (hybrid: {request.use_hybrid and query_embedding is not None})")
 
         _t0 = time.perf_counter()
-        results = opensearch_client.search_unified(
+        results = search_client.search_unified(
             query=request.query,
             query_embedding=query_embedding,
             size=request.size,

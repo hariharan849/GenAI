@@ -69,6 +69,8 @@ class NukePageRepository:
                 existing.sections = page.get("sections")
                 existing.nuke_version = nuke_version
                 existing.nuke_pages_indexed = False
+                existing.kg_extracted = False
+                existing.kg_extracted_at = None
                 existing.scraped_at = now
                 count += 1
             else:
@@ -104,6 +106,17 @@ class NukePageRepository:
         stmt = select(NukePage).where(NukePage.nuke_pages_indexed == False)
         return list(self.session.scalars(stmt))
 
+    def get_indexed_pages_pending_kg(self, page_ids: list | None = None) -> list[NukePage]:
+        stmt = select(NukePage).where(
+            NukePage.nuke_pages_indexed == True,
+            NukePage.kg_extracted == False,
+        )
+        if page_ids is not None:
+            if not page_ids:
+                return []
+            stmt = stmt.where(NukePage.id.in_(page_ids))
+        return list(self.session.scalars(stmt))
+
     def mark_indexed(self, page_ids: list) -> None:
         # page_ids: list[UUID] — UUID objects, not strings
         now = datetime.now(timezone.utc)
@@ -114,3 +127,23 @@ class NukePageRepository:
         )
         self.session.execute(stmt)
         self.session.commit()
+
+    def mark_kg_extracted(self, page_ids: list) -> None:
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(NukePage)
+            .where(NukePage.id.in_(page_ids))
+            .values(kg_extracted=True, kg_extracted_at=now)
+        )
+        self.session.execute(stmt)
+        self.session.commit()
+
+    def reset_kg_extracted_for_indexed_pages(self) -> int:
+        stmt = (
+            update(NukePage)
+            .where(NukePage.nuke_pages_indexed == True)
+            .values(kg_extracted=False, kg_extracted_at=None)
+        )
+        result = self.session.execute(stmt)
+        self.session.commit()
+        return int(result.rowcount or 0)

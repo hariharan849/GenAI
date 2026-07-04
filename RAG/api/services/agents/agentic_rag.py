@@ -11,7 +11,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
-from api.services.opensearch.client import OpenSearchClient
+from api.search.protocol import SearchClient
 
 if TYPE_CHECKING:
     from api.services.graph.client import Neo4jClient
@@ -55,7 +55,7 @@ class AgenticRAGService:
 
     def __init__(
         self,
-        opensearch_client: OpenSearchClient,
+        opensearch_client: SearchClient,
         ollama_client: OllamaClient,
         embeddings_client: JinaEmbeddingsClient,
         langfuse_tracer: Optional[LangfuseTracer] = None,

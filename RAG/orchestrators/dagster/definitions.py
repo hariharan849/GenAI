@@ -1,6 +1,7 @@
 from dagster import AssetSelection, Definitions, define_asset_job
 
 from assets.nuke_ingestion import (
+    extracted_nuke_kg,
     indexed_nuke_docs,
     nuke_ingestion_report,
     saved_nuke_pages,
@@ -14,7 +15,7 @@ nuke_docs_ingestion_job = define_asset_job(
 )
 
 defs = Definitions(
-    assets=[scraped_nuke_pages, saved_nuke_pages, indexed_nuke_docs, nuke_ingestion_report],
+    assets=[scraped_nuke_pages, saved_nuke_pages, indexed_nuke_docs, extracted_nuke_kg, nuke_ingestion_report],
     jobs=[nuke_docs_ingestion_job],
     schedules=[],
 )

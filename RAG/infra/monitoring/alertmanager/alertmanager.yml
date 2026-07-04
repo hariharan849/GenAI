@@ -1,0 +1,13 @@
+global:
+  slack_api_url_file: /tmp/alertmanager-slack-webhook
+
+route:
+  receiver: "slack-notifications"
+
+receivers:
+  - name: "slack-notifications"
+    slack_configs:
+      - send_resolved: true
+        channel: "#scalable-rag"
+        username: "PrometheusBot"
+        icon_emoji: ":rotating_light:"

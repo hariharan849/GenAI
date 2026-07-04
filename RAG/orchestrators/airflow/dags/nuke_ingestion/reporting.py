@@ -10,10 +10,12 @@ def generate_nuke_report(**context) -> dict:
     scrape_stats = ti.xcom_pull(task_ids="scrape_nuke_docs", key="return_value") if ti else {}
     save_stats = ti.xcom_pull(task_ids="save_nuke_pages_to_db", key="return_value") if ti else {}
     index_stats = ti.xcom_pull(task_ids="index_nuke_docs", key="index_stats") if ti else {}
+    kg_stats = ti.xcom_pull(task_ids="extract_nuke_kg", key="kg_stats") if ti else {}
 
     scrape_stats = scrape_stats or {}
     save_stats = save_stats or {}
     index_stats = index_stats or {}
+    kg_stats = kg_stats or {}
 
     report = {
         "pages_scraped": scrape_stats.get("pages_scraped", 0),
@@ -22,6 +24,10 @@ def generate_nuke_report(**context) -> dict:
         "pages_indexed": index_stats.get("pages_indexed", 0),
         "chunks_created": index_stats.get("chunks_created", 0),
         "bulk_errors": index_stats.get("bulk_errors", 0),
+        "kg_pages_extracted": kg_stats.get("kg_pages_extracted", 0),
+        "kg_pages_failed": kg_stats.get("kg_pages_failed", 0),
+        "kg_triples_written": kg_stats.get("kg_triples_written", 0),
+        "kg_skipped": kg_stats.get("kg_skipped", False),
         "completed_at": datetime.now().isoformat(),
     }
 

@@ -20,6 +20,8 @@ class NukePage(Base):
     sections = Column(JSONB, nullable=True)
     nuke_pages_indexed = Column(Boolean, default=False, nullable=False, index=True)
     indexed_at = Column(DateTime, nullable=True)
+    kg_extracted = Column(Boolean, default=False, nullable=False, index=True)
+    kg_extracted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,

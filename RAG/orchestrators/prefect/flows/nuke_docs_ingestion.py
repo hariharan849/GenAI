@@ -96,10 +96,25 @@ def index_nuke_docs(save_stats: dict) -> dict:
 
 
 @task(
+    name="extract_nuke_kg",
+    retries=0,
+    timeout_seconds=1200,
+    description="Extract Nuke knowledge graph triples for successfully indexed pages",
+)
+def extract_nuke_kg(index_stats: dict) -> dict:
+    from api.services.graph.ingestion import extract_kg_for_indexed_pages
+
+    logger = get_run_logger()
+    stats = extract_kg_for_indexed_pages(index_stats.get("indexed_page_ids", []))
+    logger.info(f"KG extraction stats: {stats}")
+    return stats
+
+
+@task(
     name="generate_nuke_report",
     description="Log a summary of the Nuke ingestion run",
 )
-def generate_nuke_report(save_stats: dict, index_stats: dict) -> dict:
+def generate_nuke_report(save_stats: dict, index_stats: dict, kg_stats: dict) -> dict:
     logger = get_run_logger()
 
     report = {
@@ -108,6 +123,10 @@ def generate_nuke_report(save_stats: dict, index_stats: dict) -> dict:
         "dupes_skipped": save_stats.get("dupes_skipped", 0),
         "pages_indexed": index_stats.get("pages_indexed", 0),
         "chunks_indexed": index_stats.get("chunks_indexed", 0),
+        "kg_pages_extracted": kg_stats.get("kg_pages_extracted", 0),
+        "kg_pages_failed": kg_stats.get("kg_pages_failed", 0),
+        "kg_triples_written": kg_stats.get("kg_triples_written", 0),
+        "kg_skipped": kg_stats.get("kg_skipped", False),
         "completed_at": datetime.now().isoformat(),
     }
     logger.info(f"Nuke ingestion report: {report}")
@@ -123,5 +142,6 @@ def nuke_docs_ingestion_flow() -> dict:
     pages = scrape_nuke_docs()
     save_stats = save_nuke_pages_to_db(pages)
     index_stats = index_nuke_docs(save_stats)
-    report = generate_nuke_report(save_stats, index_stats)
+    kg_stats = extract_nuke_kg(index_stats)
+    report = generate_nuke_report(save_stats, index_stats, kg_stats)
     return report

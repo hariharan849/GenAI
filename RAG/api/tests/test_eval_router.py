@@ -36,11 +36,15 @@ def _make_app(results_dir: str) -> FastAPI:
     settings = MagicMock()
     settings.eval.judge_model = "gpt-4o-mini"
     settings.eval.results_dir = results_dir
+    app.state.settings = settings
+    app.state.eval_runs = {}
+    app.state.agentic_rag_service = MagicMock()
 
     @app.on_event("startup")
     async def _startup() -> None:
         app.state.settings = settings
         app.state.eval_runs = {}
+        app.state.agentic_rag_service = MagicMock()
 
     return app
 
@@ -52,7 +56,11 @@ def client(tmp_results_dir: Path) -> TestClient:
 
 
 def test_post_run_valid_yaml_returns_run_id(client: TestClient) -> None:
-    with patch("api.routers.eval.run_harness_from_cases", new_callable=AsyncMock):
+    with patch(
+        "api.routers.eval.run_harness_from_cases",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
         with patch("api.routers.eval.save_run", return_value=Path("/tmp/fake.json")):
             res = client.post(
                 "/api/v1/eval/run",
@@ -133,3 +141,37 @@ def test_get_run_status_disk_fallback(tmp_results_dir: Path) -> None:
     body = res.json()
     assert body["status"] == "completed"
     assert body["run_id"] == run_id
+
+
+def test_get_run_returns_persisted_case_evidence(client: TestClient, tmp_results_dir: Path) -> None:
+    tmp_results_dir.mkdir(parents=True, exist_ok=True)
+    run_id = "evidence-run"
+    run_file = tmp_results_dir / f"{run_id}.json"
+    run_file.write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "timestamp": "20260630T000000Z",
+                "commit": "abc123",
+                "cases": [
+                    {
+                        "case_id": "test-1",
+                        "question": "What does Merge do?",
+                        "expected_output": "Composites two inputs.",
+                        "actual_output": "Merge composites images.",
+                        "retrieval_context": ["Merge node context"],
+                        "status": "scored",
+                        "scores": {"FaithfulnessMetric": 0.9},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    res = client.get(f"/api/v1/eval/runs/{run_id}")
+
+    assert res.status_code == 200
+    case = res.json()["cases"][0]
+    assert case["actual_output"] == "Merge composites images."
+    assert case["retrieval_context"] == ["Merge node context"]

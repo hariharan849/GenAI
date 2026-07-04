@@ -1,14 +1,16 @@
 import asyncio
-import hashlib
 import logging
 import os
 import uuid
 
 from api.db.factory import make_database
 from api.repositories.nuke_page import NukePageRepository
+from api.config import get_settings
 from api.services.embeddings.factory import make_embeddings_client
 from api.services.indexing.text_chunker import TextChunker
 from api.services.opensearch.factory import make_opensearch_client_fresh
+from api.search.factory import make_search_client_fresh
+from api.search.postgres_embedding import deterministic_chunk_id
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ NUKE_INDEX_MAPPING = {
 
 
 def _doc_id(url: str, chunk_index: int) -> str:
-    return hashlib.sha256(f"{url}:{chunk_index}".encode()).hexdigest()
+    return deterministic_chunk_id(url, chunk_index)
 
 
 async def _index_pages(pages: list[dict]) -> tuple[dict, list]:
@@ -46,13 +48,8 @@ async def _index_pages(pages: list[dict]) -> tuple[dict, list]:
     for multi-chunk pages — SQL WHERE id IN (...) deduplicates naturally).
     """
     jina_client = make_embeddings_client()
-    os_client = make_opensearch_client_fresh()
-
-    if not os_client.client.indices.exists(index=NUKE_INDEX):
-        os_client.client.indices.create(index=NUKE_INDEX, body=NUKE_INDEX_MAPPING)
-        logger.info(f"Created index: {NUKE_INDEX}")
-    else:
-        logger.info(f"Index already exists: {NUKE_INDEX}")
+    search_client = make_search_client_fresh()
+    search_client.setup_indices(force=False)
 
     chunker = TextChunker(chunk_size=600, overlap_size=100, min_chunk_size=50)
 
@@ -69,10 +66,11 @@ async def _index_pages(pages: list[dict]) -> tuple[dict, list]:
             )
         for chunk in text_chunks:
             all_chunks.append({
-                "_id": _doc_id(page["url"], chunk.metadata.chunk_index),
+                "chunk_id": _doc_id(page["url"], chunk.metadata.chunk_index),
+                "page_id": page["id"],
                 "nuke_node_name": page["node_name"],
                 "section": page["section"],
-                "section_title": chunk.metadata.section_title,
+                "section_name": chunk.metadata.section_title,
                 "url": page["url"],
                 "chunk_text": chunk.text,
                 "chunk_index": chunk.metadata.chunk_index,
@@ -93,71 +91,19 @@ async def _index_pages(pages: list[dict]) -> tuple[dict, list]:
     for chunk, embedding in zip(all_chunks, embeddings):
         chunk["embedding"] = embedding
 
-    body = []
-    for chunk in all_chunks:
-        doc_id = chunk.pop("_id")
-        body.append({"index": {"_index": NUKE_INDEX, "_id": doc_id}})
-        body.append(chunk)
+    resp = search_client.bulk_index_chunks([{"chunk_data": chunk, "embedding": chunk["embedding"]} for chunk in all_chunks])
+    errors_count = resp.get("failed", 0)
+    if errors_count:
+        logger.warning("Bulk index had %d errors", errors_count)
 
-    resp = os_client.client.bulk(body=body, refresh=True)
-    errors = [item for item in resp["items"] if "error" in item.get("index", {})]
-    if errors:
-        logger.warning(f"Bulk index had {len(errors)} errors: {errors[:3]}")
-
-    indexed_ids = [
-        meta["id"]
-        for meta, item in zip(all_chunks_meta, resp["items"])
-        if "error" not in item.get("index", {})
-    ]
+    indexed_ids = [meta["id"] for meta in all_chunks_meta] if errors_count == 0 else []
 
     stats = {
         "pages_indexed": len(pages),
         "chunks_created": len(all_chunks),
-        "bulk_errors": len(errors),
+        "bulk_errors": errors_count,
     }
     return stats, indexed_ids
-
-
-async def _extract_and_write_kg(pages: list[dict]) -> int:
-    """Extract triples via instructor+Ollama and write to Neo4j. Returns triples written.
-
-    Gated on NEO4J__ENABLED=true. Any failure in extraction or Neo4j write is caught
-    per-page so OpenSearch indexing is never affected.
-    """
-    if os.environ.get("NEO4J__ENABLED", "false").lower() != "true":
-        logger.info("NEO4J__ENABLED not set — skipping KG extraction")
-        return 0
-
-    from api.config import get_settings
-    from api.services.graph.client import Neo4jClient
-    from api.services.graph.extraction import extract_triples
-
-    settings = get_settings()
-    client = Neo4jClient(
-        bolt_url=settings.neo4j.bolt_url,
-        user=settings.neo4j.user,
-        password=settings.neo4j.password,
-    )
-
-    total_triples = 0
-    try:
-        for page in pages:
-            raw_content = page.get("raw_content") or ""
-            if not raw_content.strip():
-                continue
-            try:
-                triples = await extract_triples(raw_content)
-                if triples:
-                    written = await client.write_triples(triples)
-                    total_triples += written
-                    logger.debug("KG: wrote %d triple(s) for %s", written, page.get("node_name"))
-            except Exception as e:
-                logger.warning("KG extraction skipped for %s: %s", page.get("node_name"), e)
-    finally:
-        await client.close()
-
-    logger.info("KG extraction complete — %d triple(s) written to Neo4j", total_triples)
-    return total_triples
 
 
 def index_nuke_docs(**context) -> dict:
@@ -181,7 +127,7 @@ def index_nuke_docs(**context) -> dict:
 
     if not pages_data:
         logger.info("No unindexed pages to process")
-        return {"pages_indexed": 0, "chunks_created": 0, "bulk_errors": 0}
+        return {"pages_indexed": 0, "chunks_created": 0, "bulk_errors": 0, "indexed_page_ids": []}
 
     logger.info(f"Indexing {len(pages_data)} unindexed pages into {NUKE_INDEX}")
     stats, indexed_ids = asyncio.run(_index_pages(pages_data))
@@ -192,9 +138,7 @@ def index_nuke_docs(**context) -> dict:
 
     logger.info(f"Marked {len(set(indexed_ids))} pages as indexed")
 
-    # KG extraction — per-page instructor+Ollama call, gated on NEO4J__ENABLED
-    kg_triples = asyncio.run(_extract_and_write_kg(pages_data))
-    stats["kg_triples_written"] = kg_triples
+    stats["indexed_page_ids"] = [str(page_id) for page_id in indexed_ids]
 
     ti = context.get("ti")
     if ti:
@@ -285,11 +229,38 @@ def _embed_batch_remote(batch: dict) -> dict:
 
 
 def _os_bulk_remote(batch: dict) -> dict:
-    """Ray Data map_batches operator: bulk index embedded chunks into OpenSearch.
+    """Ray Data map_batches operator: bulk index embedded chunks into the configured search backend.
 
     Returns one row with indexed count and comma-joined page_ids that had errors,
     so the driver can exclude errored pages from mark_indexed.
     """
+    settings = get_settings()
+    if settings.search.backend == "postgres_embedding":
+        search_client = make_search_client_fresh(settings)
+        chunks = []
+        page_ids = list(batch["page_id"])
+        for i, chunk_text in enumerate(batch["chunk_text"]):
+            chunk_data = {
+                "chunk_id": _doc_id(batch["url"][i], batch["chunk_index"][i]),
+                "page_id": page_ids[i],
+                "nuke_node_name": batch["nuke_node_name"][i],
+                "section": batch["section"][i],
+                "section_name": batch["section_title"][i],
+                "url": batch["url"][i],
+                "chunk_text": chunk_text,
+                "chunk_index": batch["chunk_index"][i],
+            }
+            chunks.append({"chunk_data": chunk_data, "embedding": batch["embedding"][i].tolist()})
+
+        stats = search_client.bulk_index_chunks(chunks)
+        failed_page_ids = set(stats.get("failed_page_ids", []))
+        if stats.get("failed", 0) and not failed_page_ids:
+            failed_page_ids = set(page_ids)
+        return {
+            "indexed": [stats.get("success", 0)],
+            "error_page_ids": [",".join(sorted(failed_page_ids))],
+        }
+
     os_wrapper = make_opensearch_client_fresh()
 
     urls = list(batch["url"])
@@ -361,16 +332,20 @@ def index_nuke_docs_ray(**context) -> dict:
     # Ensure the index exists with the correct knn_vector mapping before bulk indexing.
     # OpenSearch auto-creates indices with dynamic mappings (no HNSW) — vector search
     # silently breaks. This guard runs once in the driver process, not per-worker.
-    os_client = make_opensearch_client_fresh()
-    if not os_client.client.indices.exists(index=NUKE_INDEX):
-        os_client.client.indices.create(index=NUKE_INDEX, body=NUKE_INDEX_MAPPING)
-        logger.info("Created index: %s", NUKE_INDEX)
+    settings = get_settings()
+    if settings.search.backend == "opensearch":
+        os_client = make_opensearch_client_fresh(settings)
+        if not os_client.client.indices.exists(index=NUKE_INDEX):
+            os_client.client.indices.create(index=NUKE_INDEX, body=NUKE_INDEX_MAPPING)
+            logger.info("Created index: %s", NUKE_INDEX)
+    else:
+        make_search_client_fresh(settings).setup_indices(force=False)
 
     pages_data = _load_unindexed_pages_from_db()
     if not pages_data:
         logger.info("No unindexed pages to process")
         ray.shutdown()
-        return {"pages_indexed": 0, "chunks_indexed": 0}
+        return {"pages_indexed": 0, "chunks_indexed": 0, "indexed_page_ids": []}
 
     logger.info("Ray Data pipeline: %d pages → chunk → embed (concurrency=3) → index", len(pages_data))
 
@@ -409,7 +384,11 @@ def index_nuke_docs_ray(**context) -> dict:
         total_indexed, len(success_ids), len(error_page_ids),
     )
 
-    stats = {"pages_indexed": len(success_ids), "chunks_indexed": total_indexed}
+    stats = {
+        "pages_indexed": len(success_ids),
+        "chunks_indexed": total_indexed,
+        "indexed_page_ids": [str(page_id) for page_id in success_ids],
+    }
 
     ti = context.get("ti")
     if ti:

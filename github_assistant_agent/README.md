@@ -2,6 +2,10 @@
 
 A CrewAI-powered GitHub assistant that can index a repository into a local disk cache and answer questions against that cached repository context. It also keeps the original live GitHub search fallback for broader questions or missing local context.
 
+## Documentation
+
+- [Project Flow and Usage Guide](docs/project-flow-usage.md) explains the detailed indexing, retrieval, CLI, Gradio, Docker, configuration, and troubleshooting flows.
+
 ## Setup
 
 ```bash

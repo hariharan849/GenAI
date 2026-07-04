@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 from langchain_core.tools import tool
 
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
-from api.services.opensearch.client import OpenSearchClient
+from api.search.protocol import SearchClient
 
 if TYPE_CHECKING:
     from api.services.graph.client import Neo4jClient
@@ -15,16 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 def create_retriever_tool(
-    opensearch_client: OpenSearchClient,
+    opensearch_client: SearchClient,
     embeddings_client: JinaEmbeddingsClient,
     top_k: int = 3,
     use_hybrid: bool = True,
     graph_client: Optional["Neo4jClient"] = None,
     known_nodes: Optional[frozenset] = None,
 ):
-    """Create a retriever tool combining OpenSearch hybrid search and Neo4j KG.
+    """Create a retriever tool combining hybrid search and Neo4j KG.
 
-    :param opensearch_client: Existing OpenSearch service
+    :param opensearch_client: Existing search service
     :param embeddings_client: Existing Jina embeddings service
     :param top_k: Number of chunks to retrieve
     :param use_hybrid: Use hybrid search (BM25 + vector)
@@ -74,7 +74,7 @@ def create_retriever_tool(
                 ),
             )
             hits = search_results.get("hits", [])
-            logger.info(f"Found {len(hits)} documents from OpenSearch")
+            logger.info("Found %d documents from %s", len(hits), getattr(opensearch_client, "backend_name", "search"))
             return [
                 Document(
                     page_content=hit["chunk_text"],

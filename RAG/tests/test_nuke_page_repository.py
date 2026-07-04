@@ -29,6 +29,7 @@ def _make_nuke_page(url: str = "https://example.com/node") -> NukePage:
     page.nuke_version = "17.0"
     page.scraped_at = datetime.now(timezone.utc)
     page.nuke_pages_indexed = True
+    page.kg_extracted = True
     return page
 
 
@@ -61,6 +62,8 @@ class TestUpsertPages:
         assert existing.raw_content == "new text"
         assert existing.nuke_version == "17.1"
         assert existing.nuke_pages_indexed is False
+        assert existing.kg_extracted is False
+        assert existing.kg_extracted_at is None
         session.add.assert_not_called()
         session.commit.assert_called_once()
         assert count == 1
@@ -140,5 +143,37 @@ class TestMarkIndexed:
 
         repo.mark_indexed([])
 
+        session.execute.assert_called_once()
+        session.commit.assert_called_once()
+
+
+class TestKgState:
+    def test_get_indexed_pages_pending_kg_returns_empty_for_empty_ids(self):
+        session = MagicMock()
+        repo = NukePageRepository(session)
+
+        result = repo.get_indexed_pages_pending_kg([])
+
+        assert result == []
+        session.scalars.assert_not_called()
+
+    def test_mark_kg_extracted_commits(self):
+        session = MagicMock()
+        repo = NukePageRepository(session)
+        ids = [uuid.uuid4()]
+
+        repo.mark_kg_extracted(ids)
+
+        session.execute.assert_called_once()
+        session.commit.assert_called_once()
+
+    def test_reset_kg_extracted_for_indexed_pages_commits_and_returns_count(self):
+        session = MagicMock()
+        session.execute.return_value.rowcount = 3
+        repo = NukePageRepository(session)
+
+        count = repo.reset_kg_extracted_for_indexed_pages()
+
+        assert count == 3
         session.execute.assert_called_once()
         session.commit.assert_called_once()

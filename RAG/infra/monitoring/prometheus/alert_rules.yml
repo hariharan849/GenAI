@@ -1,0 +1,22 @@
+groups:
+  - name: app_alerts
+    rules:
+      - alert: AppErrorRateHigh
+        # If >2 errors in the last 1 minute
+        expr: increase(app_errors_total[1m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Application Error Rate High"
+          description: "More than 2 errors detected in the last minute on {{ $labels.instance }}."
+
+      - alert: RagApiRestarted
+        expr: changes(process_start_time_seconds{job="rag-api"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          service: rag-api
+        annotations:
+          summary: "RAG API restarted"
+          description: "The RAG API process on {{ $labels.instance }} restarted within the last 5 minutes."

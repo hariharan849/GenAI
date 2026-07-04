@@ -73,6 +73,7 @@ x-airflow-common:
     PYTHONPATH: /opt/airflow
     # Container hostnames for Airflow
     POSTGRES_DATABASE_URL: postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
+    SEARCH__BACKEND: ${SEARCH__BACKEND:-postgres_embedding}
     OPENSEARCH_HOST: http://opensearch:9200
     OPENSEARCH__HOST: http://opensearch:9200
     # REDIS__HOST: redis
@@ -107,7 +108,10 @@ x-airflow-common:
 
 services:
   postgres:
-    image: postgres:latest
+    build:
+      context: .
+      dockerfile: infra/postgres-pg-embedding/Dockerfile
+    image: rag-postgres-pg-embedding:18-trixie-0.3.6
     container_name: rag-postgres
     command: postgres -c timezone=Asia/Kolkata
     environment:
@@ -695,6 +699,36 @@ services:
       timeout: 10s
       retries: 3
 
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: rag-node-exporter
+    command:
+      - "--path.rootfs=/host"
+    volumes:
+      - "/:/host:ro"
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: rag-alertmanager
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      umask 077 &&
+      : "${ALERTMANAGER_SLACK_WEBHOOK_URL:?set ALERTMANAGER_SLACK_WEBHOOK_URL}" &&
+      printf '%s' "$ALERTMANAGER_SLACK_WEBHOOK_URL" >/tmp/alertmanager-slack-webhook &&
+      exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml
+    environment:
+      ALERTMANAGER_SLACK_WEBHOOK_URL: ${ALERTMANAGER_SLACK_WEBHOOK_URL}
+    ports:
+      - "9096:9093"
+    volumes:
+      - ./infra/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - rag-network
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v3.4.1
     container_name: rag-prometheus
@@ -709,12 +743,15 @@ services:
       - "9099:9090"
     volumes:
       - ./infra/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus_data:/prometheus
     networks:
       - rag-network
     restart: unless-stopped
     depends_on:
       - statsd-exporter
+      - node-exporter
+      - alertmanager
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy > /dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -794,10 +831,13 @@ services:
       - ${ENV_FILE_PATH:-.env}
     environment:
       - CORS_ORIGINS=["http://localhost","http://localhost:3002","http://localhost:3000"]
+      - SEARCH__BACKEND=${SEARCH__BACKEND:-postgres_embedding}
     ports:
       - "8083:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       opensearch:
         condition: service_healthy
@@ -805,7 +845,7 @@ services:
       - rag-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5

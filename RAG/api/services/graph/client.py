@@ -5,28 +5,46 @@ from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
-VALID_PREDICATES = frozenset({"ACCEPTS_INPUT", "OUTPUTS_TO", "SIMILAR_TO"})
-
-_PREDICATE_CYPHER = {
-    "ACCEPTS_INPUT": (
-        "MERGE (a:NukeNode {name: $ea}) "
-        "MERGE (b:NukeNode {name: $eb}) "
-        "MERGE (a)-[:ACCEPTS_INPUT]->(b)"
-    ),
-    "OUTPUTS_TO": (
-        "MERGE (a:NukeNode {name: $ea}) "
-        "MERGE (b:NukeNode {name: $eb}) "
-        "MERGE (a)-[:OUTPUTS_TO]->(b)"
-    ),
-    "SIMILAR_TO": (
-        "MERGE (a:NukeNode {name: $ea}) "
-        "MERGE (b:NukeNode {name: $eb}) "
-        "MERGE (a)-[:SIMILAR_TO]->(b)"
-    ),
-}
+VALID_LABELS = frozenset({
+    "NukeNode",
+    "Knob",
+    "InputType",
+    "OutputType",
+    "Category",
+    "Operation",
+    "Channel",
+    "SupportedValue",
+})
+VALID_PREDICATES = frozenset({
+    "HAS_KNOB",
+    "KNOB_CONTROLS",
+    "ACCEPTS_INPUT",
+    "OUTPUTS",
+    "BELONGS_TO",
+    "AFFECTS_CHANNEL",
+    "SUPPORTS_VALUE",
+    "SIMILAR_TO",
+})
 
 if TYPE_CHECKING:
     pass
+
+
+def _fact_cypher(subject_type: str, predicate: str, object_type: str) -> str | None:
+    if (
+        subject_type not in VALID_LABELS
+        or predicate not in VALID_PREDICATES
+        or object_type not in VALID_LABELS
+    ):
+        return None
+
+    return (
+        f"MERGE (a:{subject_type} {{name: $subject_name}}) "
+        "SET a.entity_type = $subject_type "
+        f"MERGE (b:{object_type} {{name: $object_name}}) "
+        "SET b.entity_type = $object_type "
+        f"MERGE (a)-[:{predicate}]->(b)"
+    )
 
 
 class Neo4jClient:
@@ -81,22 +99,32 @@ class Neo4jClient:
             return docs
 
     async def write_triples(self, triples: "List") -> int:
-        """Merge (entity, relationship, entity) triples into Neo4j. Returns triples written.
-
-        Uses three-step MERGE to avoid creating duplicate nodes when the relationship
-        is new but both nodes already exist. Skips triples with unknown predicates.
-        """
+        """Merge typed graph facts into Neo4j. Returns facts written."""
         if not triples:
             return 0
         written = 0
         try:
             async with self._driver.session() as session:
                 for triple in triples:
-                    cypher = _PREDICATE_CYPHER.get(triple.relationship)
+                    subject_type = getattr(triple, "subject_type", None)
+                    predicate = getattr(triple, "predicate", None)
+                    object_type = getattr(triple, "object_type", None)
+                    cypher = _fact_cypher(subject_type, predicate, object_type)
                     if cypher is None:
-                        logger.warning("Unknown predicate '%s' — skipping", triple.relationship)
+                        logger.warning(
+                            "Unknown graph fact shape '%s -[%s]-> %s' - skipping",
+                            subject_type,
+                            predicate,
+                            object_type,
+                        )
                         continue
-                    await session.run(cypher, ea=triple.entity_a, eb=triple.entity_b)
+                    await session.run(
+                        cypher,
+                        subject_name=triple.subject_name,
+                        subject_type=triple.subject_type,
+                        object_name=triple.object_name,
+                        object_type=triple.object_type,
+                    )
                     written += 1
         except Exception as e:
             logger.warning("Neo4j write_triples failed: %s", e)
