@@ -22,6 +22,8 @@ DOCS_CHUNKS_MAPPING = {
         "properties": {
             "chunk_id": {"type": "keyword"},
             "doc_id": {"type": "keyword"},
+            "page_id": {"type": "keyword"},
+            "parent_doc_id": {"type": "keyword"},
             "chunk_index": {"type": "integer"},
             "chunk_text": {
                 "type": "text",

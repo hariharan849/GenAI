@@ -1,16 +1,15 @@
 import logging
 import time
-from contextlib import nullcontext
 from typing import Dict, List
 
 from langchain_core.messages import AIMessage
 from langgraph.runtime import Runtime
 
-from api.services.langfuse.client import FallbackPrompt
 from ..context import Context
 from ..prompts import GENERATE_ANSWER_PROMPT
 from ..state import AgentState
-from .utils import get_context_text, get_latest_query
+from .utils import get_context_text, get_effective_query
+from .tracing import create_node_span, fetch_prompt, finish_node_span, start_generation
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ async def ainvoke_generate_answer_step(
     start_time = time.time()
 
     # Get question and context
-    question = get_latest_query(state["messages"])
+    question = get_effective_query(state)
     context = get_context_text(state)
 
     # Count sources from relevant_sources
@@ -52,34 +51,26 @@ async def ainvoke_generate_answer_step(
         chunks_preview = [{"text_preview": context_preview, "length": len(context)}]
 
     # Create span for answer generation
-    span = None
-    if runtime.context.langfuse_enabled and runtime.context.trace:
-        try:
-            span = runtime.context.langfuse_tracer.create_span(
-                trace=runtime.context.trace,
-                name="answer_generation",
-                input_data={
-                    "query": question,
-                    "context_length": len(context),
-                    "sources_count": sources_count,
-                    "chunks_used": chunks_preview,
-                },
-                metadata={
-                    "node": "generate_answer",
-                    "model": runtime.context.model_name,
-                    "temperature": runtime.context.temperature,
-                },
-            )
-            logger.debug("Created Langfuse span for answer generation")
-        except Exception as e:
-            logger.warning(f"Failed to create span for generate_answer node: {e}")
+    span = create_node_span(
+        runtime,
+        "answer_generation",
+        input_data={
+            "query": question,
+            "context_length": len(context),
+            "sources_count": sources_count,
+            "chunks_used": chunks_preview,
+        },
+        metadata={
+            "node": "generate_answer",
+            "model": runtime.context.model_name,
+            "temperature": runtime.context.temperature,
+        },
+    )
+    if span:
+        logger.debug("Created Langfuse span for answer generation")
 
     # Fetch versioned prompt (falls back to hardcoded constant when Langfuse is down)
-    tracer = runtime.context.langfuse_tracer
-    if tracer:
-        prompt_obj = tracer.fetch_prompt("generate_answer", fallback_template=GENERATE_ANSWER_PROMPT)
-    else:
-        prompt_obj = FallbackPrompt(GENERATE_ANSWER_PROMPT)
+    prompt_obj = fetch_prompt(runtime, "generate_answer", GENERATE_ANSWER_PROMPT)
     answer_prompt = prompt_obj.compile(context=context, question=question)
 
     try:
@@ -91,10 +82,13 @@ async def ainvoke_generate_answer_step(
 
         # Invoke LLM for answer generation, linking prompt version to the trace
         logger.info("Invoking LLM for answer generation")
-        gen_ctx = tracer.start_generation(
-            "generate_answer_llm", model=runtime.context.model_name,
-            input_data=answer_prompt, prompt=prompt_obj,
-        ) if tracer else nullcontext(None)
+        gen_ctx = start_generation(
+            runtime,
+            "generate_answer_llm",
+            model=runtime.context.model_name,
+            input_data=answer_prompt,
+            prompt=prompt_obj,
+        )
         with gen_ctx as gen:
             response = await llm.ainvoke(answer_prompt)
             if gen:
@@ -110,19 +104,18 @@ async def ainvoke_generate_answer_step(
         logger.info(f"Generated answer of length: {len(answer)} characters")
 
         # Update span with successful result
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.end_span(
-                span,
-                output={
-                    "answer_length": len(answer),
-                    "sources_used": sources_count,
-                },
-                metadata={
-                    "execution_time_ms": execution_time,
-                    "context_length": len(context),
-                },
-            )
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={
+                "answer_length": len(answer),
+                "sources_used": sources_count,
+            },
+            metadata={
+                "context_length": len(context),
+            },
+        )
 
     except Exception as e:
         logger.error(f"LLM answer generation failed: {e}, falling back to error message")
@@ -131,14 +124,13 @@ async def ainvoke_generate_answer_step(
         answer = f"I apologize, but I encountered an error while generating the answer: {str(e)}\n\nPlease try again or rephrase your question."
 
         # Update span with error
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.update_span(
-                span,
-                output={"error": str(e), "fallback": True},
-                metadata={"execution_time_ms": execution_time},
-                level="ERROR",
-            )
-            runtime.context.langfuse_tracer.end_span(span)
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"error": str(e), "fallback": True},
+            metadata={"context_length": len(context)},
+            level="ERROR",
+        )
 
     return {"messages": [AIMessage(content=answer)]}

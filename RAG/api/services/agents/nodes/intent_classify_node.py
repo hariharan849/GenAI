@@ -1,16 +1,15 @@
 import logging
 import time
-from contextlib import nullcontext
 from typing import Dict
 
 from langgraph.runtime import Runtime
 
-from api.services.langfuse.client import FallbackPrompt
 from ..context import Context
 from ..models import RoutingDecision
 from ..prompts import INTENT_CLASSIFY_PROMPT
 from ..state import AgentState
-from .utils import get_latest_query
+from .utils import get_effective_query
+from .tracing import create_node_span, fetch_prompt, finish_node_span, start_generation
 
 logger = logging.getLogger(__name__)
 
@@ -34,26 +33,16 @@ async def ainvoke_intent_classify_step(
     logger.info("NODE: intent_classify")
     start_time = time.time()
 
-    question = get_latest_query(state["messages"])
+    question = get_effective_query(state)
     logger.debug(f"Classifying intent for query: {question[:100]}...")
 
-    span = None
-    if runtime.context.langfuse_enabled and runtime.context.trace:
-        try:
-            span = runtime.context.langfuse_tracer.create_span(
-                trace=runtime.context.trace,
-                name="intent_classify",
-                input_data={"query": question},
-                metadata={"node": "intent_classify", "model": runtime.context.model_name},
-            )
-        except Exception as e:
-            logger.warning(f"Failed to create span for intent_classify: {e}")
-
-    tracer = runtime.context.langfuse_tracer
-    if tracer:
-        prompt_obj = tracer.fetch_prompt("intent_classify", fallback_template=INTENT_CLASSIFY_PROMPT)
-    else:
-        prompt_obj = FallbackPrompt(INTENT_CLASSIFY_PROMPT)
+    span = create_node_span(
+        runtime,
+        "intent_classify",
+        input_data={"query": question},
+        metadata={"node": "intent_classify", "model": runtime.context.model_name},
+    )
+    prompt_obj = fetch_prompt(runtime, "intent_classify", INTENT_CLASSIFY_PROMPT)
     compiled_prompt = prompt_obj.compile(question=question)
 
     try:
@@ -63,15 +52,12 @@ async def ainvoke_intent_classify_step(
         )
         structured_llm = llm.with_structured_output(RoutingDecision)
 
-        gen_ctx = (
-            tracer.start_generation(
-                "intent_classify_llm",
-                model=runtime.context.model_name,
-                input_data=compiled_prompt,
-                prompt=prompt_obj,
-            )
-            if tracer
-            else nullcontext(None)
+        gen_ctx = start_generation(
+            runtime,
+            "intent_classify_llm",
+            model=runtime.context.model_name,
+            input_data=compiled_prompt,
+            prompt=prompt_obj,
         )
         with gen_ctx as gen:
             routing_decision = await structured_llm.ainvoke(compiled_prompt)
@@ -84,13 +70,12 @@ async def ainvoke_intent_classify_step(
 
         logger.info(f"Intent classified: route={routing_decision.route}, reason={routing_decision.reason}")
 
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.end_span(
-                span,
-                output={"route": routing_decision.route, "reason": routing_decision.reason},
-                metadata={"execution_time_ms": execution_time},
-            )
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"route": routing_decision.route, "reason": routing_decision.reason},
+        )
 
     except Exception as e:
         # Never block the graph on a classifier outage — default to the safe
@@ -102,14 +87,13 @@ async def ainvoke_intent_classify_step(
             reason=f"classification failed, defaulting to retrieve: {str(e)}",
         )
 
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.update_span(
-                span,
-                output={"route": routing_decision.route, "reason": routing_decision.reason, "error": str(e)},
-                metadata={"execution_time_ms": execution_time, "fallback": True},
-                level="WARNING",
-            )
-            runtime.context.langfuse_tracer.end_span(span)
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"route": routing_decision.route, "reason": routing_decision.reason, "error": str(e)},
+            metadata={"fallback": True},
+            level="WARNING",
+        )
 
     return {"routing_decision": routing_decision}

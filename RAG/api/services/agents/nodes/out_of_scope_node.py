@@ -33,7 +33,7 @@ async def ainvoke_out_of_scope_step(
 
     if output_guardrail_result and output_guardrail_result.score == 0:
         response_text = (
-            "I generated a response, but it didn't clearly reference the retrieved papers "
+            "I generated a response, but it didn't clearly reference the retrieved Nuke documentation "
             "or address your question, so I'm not showing it.\n\n"
             f"Your question: '{question}'\n\n"
             "Please try rephrasing your question, or ask about a different aspect of the topic."

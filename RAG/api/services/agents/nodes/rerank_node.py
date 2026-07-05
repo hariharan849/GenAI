@@ -8,6 +8,7 @@ from langgraph.runtime import Runtime
 from ..context import Context
 from ..state import AgentState
 from .utils import get_latest_documents, get_latest_query
+from .tracing import create_node_span, finish_node_span
 
 logger = logging.getLogger(__name__)
 
@@ -39,27 +40,21 @@ async def ainvoke_rerank_step(
     question = get_latest_query(state["messages"])
     candidates = get_latest_documents(state["messages"])
 
-    span = None
-    if runtime.context.langfuse_enabled and runtime.context.trace:
-        try:
-            span = runtime.context.langfuse_tracer.create_span(
-                trace=runtime.context.trace,
-                name="rerank",
-                input_data={"query": question, "candidate_count": len(candidates)},
-                metadata={"node": "rerank", "rerank_top_k": runtime.context.rerank_top_k},
-            )
-        except Exception as e:
-            logger.warning(f"Failed to create span for rerank: {e}")
+    span = create_node_span(
+        runtime,
+        "rerank",
+        input_data={"query": question, "candidate_count": len(candidates)},
+        metadata={"node": "rerank", "rerank_top_k": runtime.context.rerank_top_k},
+    )
 
     if not candidates:
         logger.info("No candidates to rerank, skipping Jina rerank call")
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.end_span(
-                span,
-                output={"status": "skipped_empty_candidates"},
-                metadata={"execution_time_ms": execution_time},
-            )
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"status": "skipped_empty_candidates"},
+        )
         return {"retrieved_documents": []}
 
     try:
@@ -74,17 +69,16 @@ async def ainvoke_rerank_step(
 
         logger.info(f"Reranked {len(candidates)} candidates down to {len(reranked)}")
 
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.end_span(
-                span,
-                output={
-                    "status": "reranked",
-                    "candidate_count": len(candidates),
-                    "result_count": len(reranked),
-                },
-                metadata={"execution_time_ms": execution_time},
-            )
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={
+                "status": "reranked",
+                "candidate_count": len(candidates),
+                "result_count": len(reranked),
+            },
+        )
 
         return {"retrieved_documents": reranked}
 
@@ -93,14 +87,13 @@ async def ainvoke_rerank_step(
         # through the original retrieval order rather than failing the graph.
         logger.warning(f"Jina rerank API call failed: {e}, passing through original order")
 
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.update_span(
-                span,
-                output={"status": "passthrough_on_failure", "error": str(e)},
-                metadata={"execution_time_ms": execution_time, "fallback": True},
-                level="WARNING",
-            )
-            runtime.context.langfuse_tracer.end_span(span)
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"status": "passthrough_on_failure", "error": str(e)},
+            metadata={"fallback": True},
+            level="WARNING",
+        )
 
         return {"retrieved_documents": candidates}

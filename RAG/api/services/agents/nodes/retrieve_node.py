@@ -7,7 +7,8 @@ from langgraph.runtime import Runtime
 
 from ..context import Context
 from ..state import AgentState
-from .utils import get_latest_query
+from .utils import get_effective_query, get_latest_query
+from .tracing import create_node_span, finish_node_span
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ async def ainvoke_retrieve_step(
     start_time = time.time()
 
     messages = state["messages"]
-    question = get_latest_query(messages)
+    question = get_effective_query(state)
     current_attempts = state.get("retrieval_attempts", 0)
 
     # Get max attempts from context
@@ -38,49 +39,45 @@ async def ainvoke_retrieve_step(
     # Store original query if not set
     updates = {}
     if state.get("original_query") is None:
-        updates["original_query"] = question
-        logger.debug(f"Stored original query: {question[:100]}...")
+        original_query = get_latest_query(messages)
+        updates["original_query"] = original_query
+        logger.debug(f"Stored original query: {original_query[:100]}...")
 
     # Create span for retrieval initiation
-    span = None
-    if runtime.context.langfuse_enabled and runtime.context.trace:
-        try:
-            span = runtime.context.langfuse_tracer.create_span(
-                trace=runtime.context.trace,
-                name="document_retrieval_initiation",
-                input_data={
-                    "query": question,
-                    "attempt": current_attempts + 1,
-                    "max_attempts": max_attempts,
-                },
-                metadata={
-                    "node": "retrieve",
-                    "retrieval_top_k": runtime.context.retrieval_top_k,
-                },
-            )
-            logger.debug(f"Created Langfuse span for retrieval attempt {current_attempts + 1}")
-        except Exception as e:
-            logger.warning(f"Failed to create span for retrieve node: {e}")
+    span = create_node_span(
+        runtime,
+        "document_retrieval_initiation",
+        input_data={
+            "query": question,
+            "attempt": current_attempts + 1,
+            "max_attempts": max_attempts,
+        },
+        metadata={
+            "node": "retrieve",
+            "retrieval_top_k": runtime.context.retrieval_top_k,
+        },
+    )
+    if span:
+        logger.debug(f"Created Langfuse span for retrieval attempt {current_attempts + 1}")
 
     # Check if max attempts reached
     if current_attempts >= max_attempts:
         logger.warning(f"Max retrieval attempts ({max_attempts}) reached")
         fallback_msg = (
-            f"I apologize, but I couldn't find relevant research papers after {max_attempts} attempts.\n"
+            f"I apologize, but I couldn't find relevant Nuke documentation after {max_attempts} attempts.\n"
             "This may be because:\n"
-            "1. No papers in the database contain relevant information\n"
+            "1. No indexed documentation contains relevant information\n"
             "2. The query terms don't match the indexed content\n\n"
             "Please try rephrasing your question with more specific technical terms."
         )
 
         # Update span with max attempts reached
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.end_span(
-                span,
-                output={"status": "max_attempts_reached", "fallback": True},
-                metadata={"execution_time_ms": execution_time},
-            )
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"status": "max_attempts_reached", "fallback": True},
+        )
 
         return {**updates, "messages": [AIMessage(content=fallback_msg)]}
 
@@ -106,16 +103,15 @@ async def ainvoke_retrieve_step(
     logger.debug(f"Created tool call for query: {question[:100]}...")
 
     # Update span with successful tool call creation
-    if span:
-        execution_time = (time.time() - start_time) * 1000
-        runtime.context.langfuse_tracer.end_span(
-            span,
-            output={
-                "status": "tool_call_created",
-                "query": question,
-                "attempt": new_attempt_count,
-            },
-            metadata={"execution_time_ms": execution_time},
-        )
+    finish_node_span(
+        runtime,
+        span,
+        start_time,
+        output={
+            "status": "tool_call_created",
+            "query": question,
+            "attempt": new_attempt_count,
+        },
+    )
 
     return updates

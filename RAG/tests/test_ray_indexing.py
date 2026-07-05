@@ -56,6 +56,11 @@ PAGE_WITH_RAW_CONTENT = {
 def test_chunk_page_remote_with_sections():
     chunks = _chunk_page_remote(PAGE_WITH_SECTIONS)
     assert len(chunks) > 0
+    assert [c["chunk_index"] for c in chunks] == list(range(len(chunks)))
+    assert {c["section_title"] for c in chunks} == {"Overview", "Parameters"}
+    overview_indexes = [c["chunk_index"] for c in chunks if c["section_title"] == "Overview"]
+    parameter_indexes = [c["chunk_index"] for c in chunks if c["section_title"] == "Parameters"]
+    assert max(overview_indexes) < min(parameter_indexes)
     for c in chunks:
         assert c["chunk_text"]
         assert c["page_id"] == PAGE_WITH_SECTIONS["id"]
@@ -72,6 +77,28 @@ def test_chunk_page_remote_with_raw_content():
         assert c["chunk_text"]
         assert c["page_id"] == PAGE_WITH_RAW_CONTENT["id"]
         assert c["nuke_node_name"] == "Grade"
+
+
+def test_chunk_page_remote_parent_child_adds_parent_doc_id():
+    settings = SimpleNamespace(
+        chunking=SimpleNamespace(
+            splitter_type="parent_child",
+            chunk_size=40,
+            overlap_size=5,
+            parent_chunk_size=80,
+            parent_overlap_size=10,
+            parent_doc_id_key="parent_doc_id",
+        )
+    )
+
+    with patch("nuke_ingestion.indexing.get_settings", return_value=settings):
+        chunks = _chunk_page_remote(PAGE_WITH_RAW_CONTENT)
+
+    assert len(chunks) > 0
+    assert all(c["parent_doc_id"] for c in chunks)
+    assert all(c["parent_content"] for c in chunks)
+    assert all(c["parent_metadata"]["parent_doc_id"] == c["parent_doc_id"] for c in chunks)
+    assert [c["chunk_index"] for c in chunks] == list(range(len(chunks)))
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +232,39 @@ def test_bulk_remote_postgres_backend_uses_search_client():
     sent = search_client.bulk_index_chunks.call_args.args[0][0]
     assert sent["chunk_data"]["section_name"] == "Overview"
     assert sent["chunk_data"]["chunk_id"]
+
+
+def test_bulk_remote_postgres_parent_child_sends_parent_doc_id():
+    batch = {
+        "page_id": ["00000000-0000-0000-0000-000000000001"],
+        "parent_doc_id": ["parent-1"],
+        "parent_content": ["parent text"],
+        "parent_metadata": [{"parent_doc_id": "parent-1", "page_id": "00000000-0000-0000-0000-000000000001", "url": "https://example.com/a.html"}],
+        "chunk_id": ["child-1"],
+        "chunk_text": ["child text"],
+        "chunk_index": [0],
+        "url": ["https://example.com/a.html"],
+        "nuke_node_name": ["A"],
+        "section": ["s"],
+        "section_title": ["Overview"],
+        "embedding": [np.zeros(1024, dtype=np.float32)],
+    }
+    settings = SimpleNamespace(search=SimpleNamespace(backend="postgres_embedding"), postgres_database_url="postgresql://x")
+    search_client = MagicMock()
+    search_client.bulk_index_chunks.return_value = {"success": 1, "failed": 0, "failed_page_ids": []}
+
+    with (
+        patch("nuke_ingestion.indexing.get_settings", return_value=settings),
+        patch("nuke_ingestion.indexing.PostgresParentDocumentStore") as store_cls,
+        patch("nuke_ingestion.indexing.make_search_client_fresh", return_value=search_client),
+    ):
+        result = _os_bulk_remote(batch)
+
+    assert result["indexed"] == [1]
+    store_cls.return_value.mset.assert_called_once()
+    sent = search_client.bulk_index_chunks.call_args.args[0][0]
+    assert sent["chunk_data"]["chunk_id"] == "child-1"
+    assert sent["chunk_data"]["parent_doc_id"] == "parent-1"
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Optional
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
+from api.services.guardrails.policy import GuardrailPolicyService
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
 from api.search.protocol import SearchClient
@@ -25,6 +26,7 @@ def make_agentic_rag_service(
     checkpointer: Optional[BaseCheckpointSaver] = None,
     graph_client: Optional["Neo4jClient"] = None,
     known_nodes: Optional[frozenset] = None,
+    guardrail_policy: Optional[GuardrailPolicyService] = None,
 ) -> AgenticRAGService:
     """
     Create AgenticRAGService with dependency injection.
@@ -62,4 +64,5 @@ def make_agentic_rag_service(
         checkpointer=checkpointer,
         graph_client=graph_client,
         known_nodes=known_nodes or frozenset(),
+        guardrail_policy=guardrail_policy,
     )

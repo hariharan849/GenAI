@@ -1,16 +1,15 @@
 import logging
 import time
-from contextlib import nullcontext
 from typing import Dict
 
 from langgraph.runtime import Runtime
 
-from api.services.langfuse.client import FallbackPrompt
 from ..context import Context
 from ..models import GradeDocuments, GradingResult
 from ..prompts import GRADE_DOCUMENTS_PROMPT
 from ..state import AgentState
 from .utils import get_context_text, get_latest_query
+from .tracing import create_node_span, fetch_prompt, finish_node_span, start_generation
 
 logger = logging.getLogger(__name__)
 
@@ -45,49 +44,40 @@ async def ainvoke_grade_documents_step(
         chunks_preview = [{"text_preview": context_preview, "length": len(context)}]
 
     # Create span for document grading
-    span = None
-    if runtime.context.langfuse_enabled and runtime.context.trace:
-        try:
-            span = runtime.context.langfuse_tracer.create_span(
-                trace=runtime.context.trace,
-                name="document_grading",
-                input_data={
-                    "query": question,
-                    "context_length": len(context) if context else 0,
-                    "has_context": context is not None,
-                    "chunks_received": chunks_preview,
-                },
-                metadata={
-                    "node": "grade_documents",
-                    "model": runtime.context.model_name,
-                },
-            )
-            logger.debug("Created Langfuse span for document grading")
-        except Exception as e:
-            logger.warning(f"Failed to create span for grade_documents node: {e}")
+    span = create_node_span(
+        runtime,
+        "document_grading",
+        input_data={
+            "query": question,
+            "context_length": len(context) if context else 0,
+            "has_context": context is not None,
+            "chunks_received": chunks_preview,
+        },
+        metadata={
+            "node": "grade_documents",
+            "model": runtime.context.model_name,
+        },
+    )
+    if span:
+        logger.debug("Created Langfuse span for document grading")
 
     if not context:
         logger.warning("No context found, routing to rewrite_query")
 
         # Update span with no context result
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.end_span(
-                span,
-                output={"routing_decision": "rewrite_query", "reason": "no_context"},
-                metadata={"execution_time_ms": execution_time},
-            )
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"routing_decision": "rewrite_query", "reason": "no_context"},
+        )
 
         return {"routing_decision": "rewrite_query", "grading_results": []}
 
     logger.debug(f"Grading context of length {len(context)} characters")
 
     # Fetch versioned prompt (falls back to hardcoded constant when Langfuse is down)
-    tracer = runtime.context.langfuse_tracer
-    if tracer:
-        prompt_obj = tracer.fetch_prompt("grade_documents", fallback_template=GRADE_DOCUMENTS_PROMPT)
-    else:
-        prompt_obj = FallbackPrompt(GRADE_DOCUMENTS_PROMPT)
+    prompt_obj = fetch_prompt(runtime, "grade_documents", GRADE_DOCUMENTS_PROMPT)
     grading_prompt = prompt_obj.compile(context=context, question=question)
 
     # Use LLM to grade document relevance
@@ -103,10 +93,13 @@ async def ainvoke_grade_documents_step(
 
         # Invoke LLM grading, linking prompt version to the trace
         logger.info("Invoking LLM for document grading")
-        gen_ctx = tracer.start_generation(
-            "grade_documents_llm", model=runtime.context.model_name,
-            input_data=grading_prompt, prompt=prompt_obj,
-        ) if tracer else nullcontext(None)
+        gen_ctx = start_generation(
+            runtime,
+            "grade_documents_llm",
+            model=runtime.context.model_name,
+            input_data=grading_prompt,
+            prompt=prompt_obj,
+        )
         with gen_ctx as gen:
             grading_response = await structured_llm.ainvoke(grading_prompt)
             if gen:
@@ -146,21 +139,20 @@ async def ainvoke_grade_documents_step(
     logger.info(f"Grading result: {'relevant' if is_relevant else 'not relevant'}, routing to: {route}")
 
     # Update span with grading result
-    if span:
-        execution_time = (time.time() - start_time) * 1000
-        runtime.context.langfuse_tracer.end_span(
-            span,
-            output={
-                "routing_decision": route,
-                "is_relevant": is_relevant,
-                "score": score,
-                "reasoning": grading_result.reasoning,
-            },
-            metadata={
-                "execution_time_ms": execution_time,
-                "context_length": len(context),
-            },
-        )
+    finish_node_span(
+        runtime,
+        span,
+        start_time,
+        output={
+            "routing_decision": route,
+            "is_relevant": is_relevant,
+            "score": score,
+            "reasoning": grading_result.reasoning,
+        },
+        metadata={
+            "context_length": len(context),
+        },
+    )
 
     return {
         "routing_decision": route,

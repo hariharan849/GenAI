@@ -1,16 +1,16 @@
 import logging
 import time
-from contextlib import nullcontext
 from typing import Dict, List
 
 from langchain_core.messages import HumanMessage
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field
 
-from api.services.langfuse.client import FallbackPrompt
 from ..context import Context
 from ..prompts import REWRITE_PROMPT
 from ..state import AgentState
+from .utils import get_effective_query
+from .tracing import create_node_span, fetch_prompt, finish_node_span, start_generation
 
 logger = logging.getLogger(__name__)
 
@@ -43,38 +43,28 @@ async def ainvoke_rewrite_query_step(
     start_time = time.time()
 
     # Get original query
-    original_question = state.get("original_query") or state["messages"][0].content
+    original_question = get_effective_query(state)
     current_attempt = state.get("retrieval_attempts", 0)
 
     logger.debug(f"Rewriting query using LLM: {original_question[:100]}...")
 
     # Create span for query rewriting
-    span = None
-    if runtime.context.langfuse_enabled and runtime.context.trace:
-        try:
-            span = runtime.context.langfuse_tracer.create_span(
-                trace=runtime.context.trace,
-                name="query_rewriting",
-                input_data={
-                    "original_query": original_question,
-                    "attempt": current_attempt,
-                },
-                metadata={
-                    "node": "rewrite_query",
-                    "strategy": "llm_based_expansion",
-                    "model": runtime.context.model_name,
-                },
-            )
-            logger.debug("Created Langfuse span for query rewriting")
-        except Exception as e:
-            logger.warning(f"Failed to create span for rewrite_query node: {e}")
+    span = create_node_span(
+        runtime,
+        "query_rewriting",
+        input_data={
+            "original_query": original_question,
+            "attempt": current_attempt,
+        },
+        metadata={
+            "node": "rewrite_query",
+            "strategy": "llm_based_expansion",
+            "model": runtime.context.model_name,
+        },
+    )
+    logger.debug("Created Langfuse span for query rewriting" if span else "Langfuse span unavailable for query rewriting")
 
-    # Fetch versioned prompt (falls back to hardcoded constant when Langfuse is down)
-    tracer = runtime.context.langfuse_tracer
-    if tracer:
-        prompt_obj = tracer.fetch_prompt("rewrite_query", fallback_template=REWRITE_PROMPT)
-    else:
-        prompt_obj = FallbackPrompt(REWRITE_PROMPT)
+    prompt_obj = fetch_prompt(runtime, "rewrite_query", REWRITE_PROMPT)
     rewrite_prompt = prompt_obj.compile(question=original_question)
 
     # Use LLM to rewrite the query intelligently
@@ -90,10 +80,13 @@ async def ainvoke_rewrite_query_step(
         llm_start = time.time()
 
         # Get rewritten query from LLM, linking prompt version to the trace
-        gen_ctx = tracer.start_generation(
-            "rewrite_query_llm", model=runtime.context.model_name,
-            input_data=rewrite_prompt, prompt=prompt_obj,
-        ) if tracer else nullcontext(None)
+        gen_ctx = start_generation(
+            runtime,
+            "rewrite_query_llm",
+            model=runtime.context.model_name,
+            input_data=rewrite_prompt,
+            prompt=prompt_obj,
+        )
         with gen_ctx as gen:
             result: QueryRewriteOutput = await structured_llm.ainvoke(rewrite_prompt)
             if gen:
@@ -128,22 +121,21 @@ async def ainvoke_rewrite_query_step(
         reasoning = "Fallback: Simple keyword expansion due to LLM error"
 
     # Update span with rewriting result
-    if span:
-        execution_time = (time.time() - start_time) * 1000
-        runtime.context.langfuse_tracer.end_span(
-            span,
-            output={
-                "rewritten_query": rewritten_query,
-                "reasoning": reasoning,
-                "original_query": original_question,
-            },
-            metadata={
-                "execution_time_ms": execution_time,
-                "original_length": len(original_question),
-                "rewritten_length": len(rewritten_query),
-                "llm_duration_seconds": llm_duration if 'llm_duration' in locals() else None,
-            },
-        )
+    finish_node_span(
+        runtime,
+        span,
+        start_time,
+        output={
+            "rewritten_query": rewritten_query,
+            "reasoning": reasoning,
+            "original_query": original_question,
+        },
+        metadata={
+            "original_length": len(original_question),
+            "rewritten_length": len(rewritten_query),
+            "llm_duration_seconds": llm_duration if "llm_duration" in locals() else None,
+        },
+    )
 
     return {
         "messages": [HumanMessage(content=rewritten_query)],

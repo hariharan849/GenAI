@@ -16,12 +16,14 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     from api.config import get_settings
-    from api.db.interfaces.postgresql import Base, ensure_nuke_page_kg_columns
+    from api.db.interfaces.postgresql import Base, ensure_nuke_page_kg_columns, ensure_search_parent_child_columns
     from api.schemas.database.config import PostgreSQLSettings
     from sqlalchemy import create_engine, inspect
 
     # Import all models so they register with Base.metadata before create_all
     import api.models.nuke_page  # noqa: F401
+    import api.models.nuke_doc_chunk  # noqa: F401
+    import api.models.nuke_parent_document  # noqa: F401
     import api.models.rag_interaction  # noqa: F401
 
     settings = get_settings()
@@ -36,6 +38,7 @@ def main() -> None:
 
     Base.metadata.create_all(bind=engine)
     ensure_nuke_page_kg_columns(engine)
+    ensure_search_parent_child_columns(engine)
 
     after = set(inspector.get_table_names())
     created = after - before

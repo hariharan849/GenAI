@@ -27,8 +27,12 @@ class ChunkingSettings(BaseConfigSettings):
         case_sensitive=False,
     )
 
-    chunk_size: int = 600  # Target words per chunk
-    overlap_size: int = 100  # Words to overlap between chunks
+    splitter_type: Literal["recursive", "parent_child"] = "recursive"
+    chunk_size: int = 600  # Target words per child chunk
+    overlap_size: int = 100  # Words to overlap between child chunks
+    parent_chunk_size: int = 1800  # Target words per parent chunk
+    parent_overlap_size: int = 200  # Words to overlap between parent chunks
+    parent_doc_id_key: str = "parent_doc_id"
     min_chunk_size: int = 100  # Minimum words for a valid chunk
     section_based: bool = True  # Use section-based chunking when available
 
@@ -171,6 +175,37 @@ class EvalSettings(BaseConfigSettings):
     results_dir: str = "api/evaluation/runs"
 
 
+class GuardrailsSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="GUARDRAILS__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    enabled: bool = True
+    presidio_enabled: bool = True
+    presidio_entities: List[str] = [
+        "EMAIL_ADDRESS",
+        "PHONE_NUMBER",
+        "US_SSN",
+        "CREDIT_CARD",
+        "IP_ADDRESS",
+        "PERSON",
+        "LOCATION",
+    ]
+    presidio_score_threshold: float = 0.5
+    presidio_allowlist_terms: List[str] = []
+    presidio_fail_closed: bool = False
+
+    llama_guard_enabled: bool = True
+    llama_guard_model: str = "llama-guard"
+    llama_guard_timeout_seconds: float = 10.0
+    llama_guard_fail_closed_input: bool = True
+    llama_guard_fail_closed_output: bool = True
+
+
 class Settings(BaseConfigSettings):
     app_version: str = "0.1.0"
     debug: bool = True
@@ -202,6 +237,7 @@ class Settings(BaseConfigSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     eval: EvalSettings = Field(default_factory=EvalSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
+    guardrails: GuardrailsSettings = Field(default_factory=GuardrailsSettings)
 
     @field_validator("postgres_database_url")
     @classmethod

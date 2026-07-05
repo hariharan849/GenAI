@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from api.config import SearchSettings, Settings
+from api.config import ChunkingSettings, SearchSettings, Settings
 from api.search.factory import make_search_client, make_search_client_fresh
 from api.search.postgres_embedding import PostgresEmbeddingSearchClient, deterministic_chunk_id
 
@@ -16,6 +16,21 @@ def test_search_factory_selects_postgres_embedding():
 
     assert client == client_cls.return_value
     client_cls.assert_called_once_with(settings)
+
+
+def test_chunking_settings_default_to_recursive_splitter():
+    settings = ChunkingSettings()
+
+    assert settings.splitter_type == "recursive"
+    assert settings.parent_chunk_size == 1800
+    assert settings.parent_overlap_size == 200
+    assert settings.parent_doc_id_key == "parent_doc_id"
+
+
+def test_chunking_settings_accept_parent_child_splitter():
+    settings = ChunkingSettings(splitter_type="parent_child")
+
+    assert settings.splitter_type == "parent_child"
 
 
 def test_search_factory_selects_opensearch():
@@ -53,6 +68,7 @@ def test_postgres_search_result_shape():
         "score": 0.42,
         "chunk_id": "chunk-1",
         "page_id": "00000000-0000-0000-0000-000000000001",
+        "parent_doc_id": "parent-1",
         "url": "https://example.com/blur.html",
         "nuke_node_name": "Blur",
         "section": "filter_nodes",
@@ -68,6 +84,7 @@ def test_postgres_search_result_shape():
         "score": 0.42,
         "chunk_id": "chunk-1",
         "page_id": "00000000-0000-0000-0000-000000000001",
+        "parent_doc_id": "parent-1",
         "url": "https://example.com/blur.html",
         "nuke_node_name": "Blur",
         "section": "filter_nodes",
@@ -154,3 +171,17 @@ def test_postgres_bulk_upsert_partial_failure_reports_page_id():
 def test_deterministic_chunk_id_matches_existing_ingestion_semantics():
     assert deterministic_chunk_id("https://example.com/a", 3) == deterministic_chunk_id("https://example.com/a", 3)
     assert deterministic_chunk_id("https://example.com/a", 3) != deterministic_chunk_id("https://example.com/a", 4)
+
+
+def test_postgres_normalize_chunk_preserves_parent_doc_id():
+    client = PostgresEmbeddingSearchClient.__new__(PostgresEmbeddingSearchClient)
+    payload = client._normalize_chunk(_chunk() | {"chunk_data": _chunk()["chunk_data"] | {"parent_doc_id": "parent-1"}})
+
+    assert payload["parent_doc_id"] == "parent-1"
+
+
+def test_postgres_normalize_chunk_allows_missing_parent_doc_id():
+    client = PostgresEmbeddingSearchClient.__new__(PostgresEmbeddingSearchClient)
+    payload = client._normalize_chunk(_chunk())
+
+    assert payload["parent_doc_id"] is None

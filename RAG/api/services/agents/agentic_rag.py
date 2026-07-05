@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 from langchain_core.messages import HumanMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
 
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
+from api.services.guardrails.policy import GuardrailPolicyService
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
+from api.search.parent_child import create_parent_document_retriever
 from api.search.protocol import SearchClient
 
 if TYPE_CHECKING:
@@ -18,19 +18,7 @@ if TYPE_CHECKING:
 
 from .config import GraphConfig
 from .context import Context
-from .nodes import (
-    ainvoke_generate_answer_step,
-    ainvoke_grade_documents_step,
-    ainvoke_input_guardrail_step,
-    ainvoke_intent_classify_step,
-    ainvoke_out_of_scope_step,
-    ainvoke_output_guardrail_step,
-    ainvoke_rerank_step,
-    ainvoke_retrieve_step,
-    ainvoke_rewrite_query_step,
-    continue_after_input_guardrail,
-    continue_after_output_guardrail,
-)
+from .graph_builder import build_agentic_rag_graph
 from .state import AgentState
 from .tools import create_retriever_tool
 
@@ -63,6 +51,7 @@ class AgenticRAGService:
         checkpointer: Optional[BaseCheckpointSaver] = None,
         graph_client: Optional["Neo4jClient"] = None,
         known_nodes: Optional[frozenset] = None,
+        guardrail_policy: Optional[GuardrailPolicyService] = None,
     ):
         """Initialize agentic RAG service.
 
@@ -86,6 +75,7 @@ class AgenticRAGService:
         self.checkpointer = checkpointer
         self.graph_client = graph_client
         self.known_nodes = known_nodes or frozenset()
+        self.guardrail_policy = guardrail_policy
 
         logger.info("Initializing AgenticRAGService with configuration:")
         logger.info(f"  Model: {self.graph_config.model}")
@@ -108,14 +98,21 @@ class AgenticRAGService:
         """
         logger.info("Building LangGraph workflow with context_schema")
 
-        # Create workflow with AgentState and Context schema
-        workflow = StateGraph(AgentState, context_schema=Context)
-
         # Create tools (these still need to be created upfront for ToolNode)
         # NOTE: top_k is baked in here as a closure constant at service-init
         # time — it is never read per-request from Context/AgentState. Uses
         # retrieval_top_k (the wide pre-rerank candidate count), not the
         # legacy top_k field, since rerank narrows the final count instead.
+        parent_retriever = None
+        if self.graph_config.settings.chunking.splitter_type == "parent_child":
+            parent_retriever = create_parent_document_retriever(
+                settings=self.graph_config.settings,
+                search_client=self.opensearch,
+                embeddings_client=self.embeddings,
+                top_k=self.graph_config.retrieval_top_k,
+                use_hybrid=self.graph_config.use_hybrid,
+            )
+
         retriever_tool = create_retriever_tool(
             opensearch_client=self.opensearch,
             embeddings_client=self.embeddings,
@@ -123,103 +120,16 @@ class AgenticRAGService:
             use_hybrid=self.graph_config.use_hybrid,
             graph_client=self.graph_client,
             known_nodes=self.known_nodes,
+            parent_retriever=parent_retriever,
         )
         tools = [retriever_tool]
 
-        # Add nodes (just function references - no closures needed!)
-        logger.info("Adding nodes to workflow graph")
-        workflow.add_node("input_guardrail", ainvoke_input_guardrail_step)
-        workflow.add_node("intent_classify", ainvoke_intent_classify_step)
-        workflow.add_node("out_of_scope", ainvoke_out_of_scope_step)
-        workflow.add_node("retrieve", ainvoke_retrieve_step)
-        workflow.add_node("tool_retrieve", ToolNode(tools))
-        workflow.add_node("rerank", ainvoke_rerank_step)
-        workflow.add_node("grade_documents", ainvoke_grade_documents_step)
-        workflow.add_node("rewrite_query", ainvoke_rewrite_query_step)
-        workflow.add_node("generate_answer", ainvoke_generate_answer_step)
-        workflow.add_node("output_guardrail", ainvoke_output_guardrail_step)
-
-        # Add edges
-        logger.info("Configuring graph edges and routing logic")
-
-        # Start → input guardrail validation
-        workflow.add_edge(START, "input_guardrail")
-
-        # Input guardrail → route based on score
-        workflow.add_conditional_edges(
-            "input_guardrail",
-            continue_after_input_guardrail,
-            {
-                "continue": "intent_classify",
-                "out_of_scope": "out_of_scope",
-            },
-        )
-
-        # Intent classify → route based on whether retrieval is needed
-        workflow.add_conditional_edges(
-            "intent_classify",
-            lambda state: state.get("routing_decision").route if state.get("routing_decision") else "retrieve",
-            {
-                "retrieve": "retrieve",
-                "generate_answer": "generate_answer",
-                "out_of_scope": "out_of_scope",
-            },
-        )
-
-        # Out of scope → END
-        workflow.add_edge("out_of_scope", END)
-
-        # Retrieve node creates tool call
-        workflow.add_conditional_edges(
-            "retrieve",
-            tools_condition,
-            {
-                "tools": "tool_retrieve",
-                END: END,
-            },
-        )
-
-        # After tool retrieval → rerank (widen-then-narrow) → grade documents.
-        # This sits on the single shared retrieve->tool_retrieve->rerank->grade
-        # edge, so it also runs again on every rewrite_query retry pass — the
-        # only path that bypasses it is the exhausted-attempts fallback in
-        # retrieve_node.py, which short-circuits straight to END via
-        # tools_condition before tool_retrieve ever runs.
-        workflow.add_edge("tool_retrieve", "rerank")
-        workflow.add_edge("rerank", "grade_documents")
-
-        # After grading → route based on relevance
-        workflow.add_conditional_edges(
-            "grade_documents",
-            lambda state: state.get("routing_decision", "generate_answer"),
-            {
-                "generate_answer": "generate_answer",
-                "rewrite_query": "rewrite_query",
-            },
-        )
-
-        # After rewriting → try retrieve again
-        workflow.add_edge("rewrite_query", "retrieve")
-
-        # After answer generation → output guardrail validation
-        workflow.add_edge("generate_answer", "output_guardrail")
-
-        # Output guardrail → route based on grounding/relevance check
-        workflow.add_conditional_edges(
-            "output_guardrail",
-            continue_after_output_guardrail,
-            {
-                "pass": END,
-                "out_of_scope": "out_of_scope",
-            },
-        )
-
-        # Compile graph
         logger.info(f"Compiling LangGraph workflow (checkpointer={'enabled' if self.checkpointer else 'disabled'})")
-        compiled_graph = workflow.compile(checkpointer=self.checkpointer)
-        logger.info("✓ Graph compilation successful")
+        compiled_graph = build_agentic_rag_graph(tools=tools, checkpointer=self.checkpointer)
+        logger.info("Graph compilation successful")
 
         return compiled_graph
+
 
     async def ask(
         self,
@@ -335,6 +245,7 @@ class AgenticRAGService:
                 rerank_top_k=self.graph_config.rerank_top_k,
                 max_retrieval_attempts=self.graph_config.max_retrieval_attempts,
                 guardrail_threshold=self.graph_config.guardrail_threshold,
+                guardrail_policy=self.guardrail_policy,
             )
 
             # Stable per-user(+session) thread id for checkpointer persistence.
@@ -482,7 +393,7 @@ class AgenticRAGService:
         grading_results = result.get("grading_results", [])
 
         if guardrail_result:
-            steps.append(f"Validated query scope (score: {guardrail_result.score}/100)")
+            steps.append(f"Input safety/privacy guardrail check (score: {guardrail_result.score}/100)")
 
         if retrieval_attempts > 0:
             steps.append(f"Retrieved documents ({retrieval_attempts} attempt(s))")
@@ -495,7 +406,7 @@ class AgenticRAGService:
             steps.append("Rewritten query for better results")
 
         if result.get("pii_redacted"):
-            steps.append("Redacted PII from query before scope check")
+            steps.append("Redacted PII from query before downstream LLM/tool calls")
 
         steps.append("Generated answer from context")
 

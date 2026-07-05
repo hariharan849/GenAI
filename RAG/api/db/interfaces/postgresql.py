@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from typing import Generator, Optional
 
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 from api.db.interfaces.base import BaseDatabase
@@ -21,6 +21,20 @@ def ensure_nuke_page_kg_columns(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE nuke_pages ADD COLUMN IF NOT EXISTS kg_extracted BOOLEAN NOT NULL DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE nuke_pages ADD COLUMN IF NOT EXISTS kg_extracted_at TIMESTAMP NULL"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_nuke_pages_kg_extracted ON nuke_pages (kg_extracted)"))
+
+
+def ensure_search_parent_child_columns(engine_or_conn: Engine | Connection) -> None:
+    """Patch existing search tables for parent-child retrieval metadata."""
+    def _apply(conn: Connection) -> None:
+        conn.execute(text("ALTER TABLE nuke_doc_chunks ADD COLUMN IF NOT EXISTS parent_doc_id VARCHAR NULL"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_nuke_doc_chunks_parent_doc_id ON nuke_doc_chunks (parent_doc_id)"))
+
+    if isinstance(engine_or_conn, Connection):
+        _apply(engine_or_conn)
+        return
+
+    with engine_or_conn.begin() as conn:
+        _apply(conn)
 
 
 class PostgreSQLDatabase(BaseDatabase):
@@ -64,6 +78,7 @@ class PostgreSQLDatabase(BaseDatabase):
             # Create tables if they don't exist (idempotent operation)
             Base.metadata.create_all(bind=self.engine)
             ensure_nuke_page_kg_columns(self.engine)
+            ensure_search_parent_child_columns(self.engine)
 
             # Check if any new tables were created
             updated_tables = inspector.get_table_names()
