@@ -7,6 +7,7 @@ from .output_guardrail_node import ainvoke_output_guardrail_step, continue_after
 from .rerank_node import ainvoke_rerank_step
 from .retrieve_node import ainvoke_retrieve_step
 from .rewrite_query_node import ainvoke_rewrite_query_step
+from .safety_refusal_node import ainvoke_safety_refusal_step
 
 __all__ = [
     "ainvoke_input_guardrail_step",
@@ -20,4 +21,5 @@ __all__ = [
     "ainvoke_grade_documents_step",
     "ainvoke_rewrite_query_step",
     "ainvoke_generate_answer_step",
+    "ainvoke_safety_refusal_step",
 ]

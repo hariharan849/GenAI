@@ -17,6 +17,7 @@ from api.services.agents.factory import make_agentic_rag_service
 from api.services.cache.factory import make_cache_client, make_semantic_cache_client
 from api.services.embeddings.factory import make_embeddings_service
 from api.services.graph.factory import make_neo4j_client
+from api.services.guardrails.factory import make_guardrail_policy_service
 from api.services.langfuse.factory import make_langfuse_tracer
 from api.services.ollama.factory import make_ollama_client
 
@@ -79,6 +80,8 @@ async def lifespan(app: FastAPI):
 
     app.state.embeddings_service = make_embeddings_service()
     app.state.ollama_client = make_ollama_client()
+    app.state.guardrail_policy_service = make_guardrail_policy_service(settings, app.state.ollama_client)
+    await app.state.guardrail_policy_service.initialize()
     app.state.langfuse_tracer = make_langfuse_tracer()
     app.state.cache_client = make_cache_client(settings)
     app.state.semantic_cache_client = make_semantic_cache_client(settings)
@@ -114,6 +117,7 @@ async def lifespan(app: FastAPI):
             checkpointer=checkpointer,
             graph_client=app.state.graph_client,
             known_nodes=app.state.known_nodes,
+            guardrail_policy=app.state.guardrail_policy_service,
         )
         logger.info("Agentic RAG service initialized (built once, not per-request)")
 

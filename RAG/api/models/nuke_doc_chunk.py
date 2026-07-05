@@ -12,6 +12,7 @@ class NukeDocChunk(Base):
 
     chunk_id = Column(String, primary_key=True)
     page_id = Column(UUID(as_uuid=True), ForeignKey("nuke_pages.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_doc_id = Column(String, nullable=True, index=True)
     url = Column(String, nullable=False, index=True)
     nuke_node_name = Column(String, nullable=False, index=True)
     section = Column(String, nullable=False, index=True)

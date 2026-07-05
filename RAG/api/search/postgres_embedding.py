@@ -11,8 +11,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
 from api.config import Settings
+from api.db.interfaces.postgresql import ensure_search_parent_child_columns
 from api.models.nuke_doc_chunk import NukeDocChunk
 from api.models.nuke_page import NukePage  # noqa: F401
+from api.models.nuke_parent_document import NukeParentDocument  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +96,8 @@ class PostgresEmbeddingSearchClient:
             results["extension"] = True
 
             NukeDocChunk.__table__.create(bind=conn, checkfirst=True)
+            NukeParentDocument.__table__.create(bind=conn, checkfirst=True)
+            ensure_search_parent_child_columns(conn)
             results["schema"] = True
 
             conn.execute(
@@ -148,7 +152,7 @@ class PostgresEmbeddingSearchClient:
     ) -> Dict[str, Any]:
         sql = """
             WITH q AS (SELECT websearch_to_tsquery('english', :query) AS tsq)
-            SELECT chunk_id, page_id, url, nuke_node_name, section, section_name,
+            SELECT chunk_id, page_id, parent_doc_id, url, nuke_node_name, section, section_name,
                    chunk_index, chunk_text,
                    ts_rank_cd(to_tsvector('english', chunk_text), q.tsq) AS score,
                    ts_headline('english', chunk_text, q.tsq, 'MaxFragments=2, MinWords=5, MaxWords=20') AS headline
@@ -171,7 +175,7 @@ class PostgresEmbeddingSearchClient:
         min_score: float,
     ) -> Dict[str, Any]:
         sql = """
-            SELECT chunk_id, page_id, url, nuke_node_name, section, section_name,
+            SELECT chunk_id, page_id, parent_doc_id, url, nuke_node_name, section, section_name,
                    chunk_index, chunk_text,
                    1.0 / (1.0 + (embedding <=> CAST(:embedding AS real[]))) AS score,
                    NULL AS headline
@@ -224,7 +228,7 @@ class PostgresEmbeddingSearchClient:
                 ) ranked
                 GROUP BY chunk_id
             )
-            SELECT c.chunk_id, c.page_id, c.url, c.nuke_node_name, c.section, c.section_name,
+            SELECT c.chunk_id, c.page_id, c.parent_doc_id, c.url, c.nuke_node_name, c.section, c.section_name,
                    c.chunk_index, c.chunk_text, f.score, NULL AS headline
             FROM fused f
             JOIN nuke_doc_chunks c ON c.chunk_id = f.chunk_id
@@ -262,6 +266,7 @@ class PostgresEmbeddingSearchClient:
                     stmt = insert(NukeDocChunk).values(**payload)
                     update_values = {
                         "page_id": stmt.excluded.page_id,
+                        "parent_doc_id": stmt.excluded.parent_doc_id,
                         "url": stmt.excluded.url,
                         "nuke_node_name": stmt.excluded.nuke_node_name,
                         "section": stmt.excluded.section,
@@ -304,6 +309,7 @@ class PostgresEmbeddingSearchClient:
         return {
             "chunk_id": chunk_data.get("chunk_id") or chunk_data.get("_id") or deterministic_chunk_id(url, chunk_index),
             "page_id": page_id,
+            "parent_doc_id": chunk_data.get("parent_doc_id"),
             "url": url,
             "nuke_node_name": chunk_data.get("nuke_node_name") or chunk_data.get("node_name") or "",
             "section": chunk_data.get("section") or "",
@@ -318,6 +324,7 @@ class PostgresEmbeddingSearchClient:
             "score": float(row["score"] or 0.0),
             "chunk_id": row["chunk_id"],
             "page_id": str(row["page_id"]),
+            "parent_doc_id": row.get("parent_doc_id"),
             "url": row["url"],
             "nuke_node_name": row["nuke_node_name"],
             "section": row["section"],

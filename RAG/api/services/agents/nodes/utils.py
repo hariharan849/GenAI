@@ -94,6 +94,14 @@ def get_latest_query(messages: List) -> str:
     raise ValueError("No user query found in messages")
 
 
+def get_effective_query(state: AgentState) -> str:
+    """Get the query that should be sent to downstream LLM/tool calls."""
+    sanitized_query = state.get("sanitized_query")
+    if sanitized_query:
+        return sanitized_query
+    return get_latest_query(state["messages"])
+
+
 def get_latest_context(messages: List) -> str:
     """Get the latest context from tool messages.
 

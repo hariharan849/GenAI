@@ -15,9 +15,9 @@ interface OpenAIChatProps {
 
 const GREETING =
   "Hi! I can help you explore the Nuke 17.0 reference guide. Try:\n\n" +
-  '• "How does the Blur node work?"\n' +
-  '• "Find nodes for color grading"\n' +
-  '• "Explain the Merge node compositing modes"';
+  '- "How does the Blur node work?"\n' +
+  '- "Find nodes for color grading"\n' +
+  '- "Explain the Merge node compositing modes"';
 
 export function OpenAIChat({ knowledgeSource }: OpenAIChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -135,7 +135,7 @@ export function OpenAIChat({ knowledgeSource }: OpenAIChatProps) {
 
       {justMounted && (
         <div className="openai-chat-notice">
-          Conversation cleared — now in OpenAI mode
+          Conversation cleared - now in ChatKit mode
         </div>
       )}
 
@@ -146,7 +146,7 @@ export function OpenAIChat({ knowledgeSource }: OpenAIChatProps) {
             onClick={() => setError(null)}
             style={{ marginLeft: "0.5rem", background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontWeight: 700 }}
           >
-            ×
+            x
           </button>
         </div>
       )}
@@ -178,7 +178,7 @@ export function OpenAIChat({ knowledgeSource }: OpenAIChatProps) {
             ) : (
               <div className="status-badge" style={{ margin: "0.25rem 0" }}>
                 <div className="spinner" />
-                Searching knowledge base…
+                Searching knowledge base...
               </div>
             )}
           </div>
@@ -193,7 +193,7 @@ export function OpenAIChat({ knowledgeSource }: OpenAIChatProps) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask about Nuke nodes, compositing, VFX…"
+          placeholder="Ask about Nuke nodes, compositing, VFX..."
           rows={2}
           disabled={isLoading}
         />

@@ -3,6 +3,7 @@ from langfuse._client.span import LangfuseSpan
 from typing import TYPE_CHECKING, Optional
 
 from api.services.embeddings.jina_client import JinaEmbeddingsClient
+from api.services.guardrails.policy import GuardrailPolicyService
 from api.services.langfuse.client import LangfuseTracer
 from api.services.ollama.client import OllamaClient
 from api.search.protocol import SearchClient
@@ -27,6 +28,7 @@ class Context:
     :param rerank_top_k: Final candidate count kept after reranking
     :param max_retrieval_attempts: Maximum retrieval attempts
     :param guardrail_threshold: Threshold for guardrail validation (0-100)
+    :param guardrail_policy: Privacy and safety policy service
     """
 
     ollama_client: OllamaClient
@@ -42,3 +44,4 @@ class Context:
     rerank_top_k: int = 5
     max_retrieval_attempts: int = 2
     guardrail_threshold: int = 60
+    guardrail_policy: Optional[GuardrailPolicyService] = None

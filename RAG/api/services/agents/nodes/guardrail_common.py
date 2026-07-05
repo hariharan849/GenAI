@@ -1,13 +1,12 @@
 import logging
 import time
-from contextlib import nullcontext
 from typing import Any, Dict
 
 from langgraph.runtime import Runtime
 
-from api.services.langfuse.client import FallbackPrompt
 from ..context import Context
 from ..models import GuardrailScoring
+from .tracing import create_node_span, fetch_prompt, finish_node_span, start_generation
 
 logger = logging.getLogger(__name__)
 
@@ -41,23 +40,14 @@ async def ainvoke_guardrail_llm(
     """
     start_time = time.time()
 
-    span = None
-    if runtime.context.langfuse_enabled and runtime.context.trace:
-        try:
-            span = runtime.context.langfuse_tracer.create_span(
-                trace=runtime.context.trace,
-                name=span_name,
-                input_data=compile_kwargs,
-                metadata={"node": node_label, "model": runtime.context.model_name},
-            )
-        except Exception as e:
-            logger.warning(f"Failed to create span for {span_name}: {e}")
+    span = create_node_span(
+        runtime,
+        span_name,
+        input_data=compile_kwargs,
+        metadata={"node": node_label, "model": runtime.context.model_name},
+    )
 
-    tracer = runtime.context.langfuse_tracer
-    if tracer:
-        prompt_obj = tracer.fetch_prompt(prompt_name, fallback_template=fallback_template)
-    else:
-        prompt_obj = FallbackPrompt(fallback_template)
+    prompt_obj = fetch_prompt(runtime, prompt_name, fallback_template)
     compiled_prompt = prompt_obj.compile(**compile_kwargs)
 
     try:
@@ -67,15 +57,12 @@ async def ainvoke_guardrail_llm(
         )
         structured_llm = llm.with_structured_output(GuardrailScoring)
 
-        gen_ctx = (
-            tracer.start_generation(
-                f"{node_label}_llm",
-                model=runtime.context.model_name,
-                input_data=compiled_prompt,
-                prompt=prompt_obj,
-            )
-            if tracer
-            else nullcontext(None)
+        gen_ctx = start_generation(
+            runtime,
+            f"{node_label}_llm",
+            model=runtime.context.model_name,
+            input_data=compiled_prompt,
+            prompt=prompt_obj,
         )
         with gen_ctx as gen:
             response = await structured_llm.ainvoke(compiled_prompt)
@@ -86,13 +73,12 @@ async def ainvoke_guardrail_llm(
                     metadata={"prompt_source": source},
                 )
 
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.end_span(
-                span,
-                output={"score": response.score, "reason": response.reason},
-                metadata={"execution_time_ms": execution_time},
-            )
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"score": response.score, "reason": response.reason},
+        )
 
     except Exception as e:
         logger.error(f"{node_label} LLM scoring failed: {e}, falling back to default score {fallback_score}")
@@ -102,14 +88,13 @@ async def ainvoke_guardrail_llm(
             reason=f"LLM validation failed, using default: {str(e)}",
         )
 
-        if span:
-            execution_time = (time.time() - start_time) * 1000
-            runtime.context.langfuse_tracer.update_span(
-                span,
-                output={"score": response.score, "reason": response.reason, "error": str(e)},
-                metadata={"execution_time_ms": execution_time, "fallback": True},
-                level="WARNING",
-            )
-            runtime.context.langfuse_tracer.end_span(span)
+        finish_node_span(
+            runtime,
+            span,
+            start_time,
+            output={"score": response.score, "reason": response.reason, "error": str(e)},
+            metadata={"fallback": True},
+            level="WARNING",
+        )
 
     return response

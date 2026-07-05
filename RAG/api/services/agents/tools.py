@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional
 
+from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document
 from langchain_core.tools import tool
 
@@ -21,6 +22,7 @@ def create_retriever_tool(
     use_hybrid: bool = True,
     graph_client: Optional["Neo4jClient"] = None,
     known_nodes: Optional[frozenset] = None,
+    parent_retriever: Optional[BaseRetriever] = None,
 ):
     """Create a retriever tool combining hybrid search and Neo4j KG.
 
@@ -30,6 +32,7 @@ def create_retriever_tool(
     :param use_hybrid: Use hybrid search (BM25 + vector)
     :param graph_client: Optional Neo4j client for KG hop (None = disabled)
     :param known_nodes: frozenset of Nuke node names for entity matching
+    :param parent_retriever: Optional LangChain parent retriever for parent-child chunks
     :returns: LangChain tool for retrieving Nuke documentation
     """
     _known_nodes: frozenset = known_nodes or frozenset()
@@ -63,6 +66,18 @@ def create_retriever_tool(
         loop = asyncio.get_running_loop()
 
         async def _hybrid() -> list[Document]:
+            if parent_retriever is not None:
+                docs = await parent_retriever.ainvoke(query)
+                for doc in docs:
+                    doc.metadata = {
+                        **dict(doc.metadata or {}),
+                        "source": "hybrid",
+                        "search_mode": "parent_child",
+                        "top_k": top_k,
+                    }
+                logger.info("Found %d parent documents from parent-child retriever", len(docs))
+                return docs
+
             embedding = await embeddings_client.embed_query(query)
             search_results = await loop.run_in_executor(
                 None,
