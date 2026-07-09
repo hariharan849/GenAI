@@ -1,6 +1,7 @@
 from assets.nuke_ingestion import (
     extracted_nuke_kg,
     indexed_nuke_docs,
+    nuke_docs_ingestion_job,
     nuke_ingestion_report,
     saved_nuke_pages,
     scraped_nuke_pages,
@@ -12,4 +13,5 @@ __all__ = [
     "indexed_nuke_docs",
     "extracted_nuke_kg",
     "nuke_ingestion_report",
+    "nuke_docs_ingestion_job",
 ]

@@ -28,7 +28,7 @@ ui/
     RAGCopilot.tsx                # CopilotKit sidebar for Nuke docs
     AgentSteps.tsx                # Renders intermediate LangGraph node steps
     NukeResults.tsx               # Nuke documentation result cards
-    OpenAIChat.tsx                # OpenAI Responses API chat
+    ChatKitPanel.tsx              # OpenAI ChatKit embedded chat
   lib/                            # Shared utilities
   public/                         # Static assets
   Dockerfile                      # Production image
@@ -43,9 +43,14 @@ ui/
 
 Uses `@copilotkit/react-ui` and `@copilotkit/react-core`. The sidebar calls the FastAPI Nuke RAG endpoints through the CopilotKit backend route.
 
-### OpenAI Responses API
+### OpenAI ChatKit
 
-`OpenAIChat.tsx` calls the proxy route at `app/api/openai-chat/route.ts`, which runs an OpenAI tool-calling loop against the Nuke knowledge base.
+`ChatKitPanel.tsx` renders the official `@openai/chatkit-react` widget. It calls `app/api/chatkit/session/route.ts`, which creates a ChatKit session using:
+
+- `OPENAI_API_KEY`
+- `OPENAI_CHATKIT_WORKFLOW_ID`
+
+The older custom Responses API route remains available at `app/api/openai-chat/route.ts`, but the main UI provider toggle now switches between CopilotKit and ChatKit.
 
 ## Knowledge Source
 

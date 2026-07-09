@@ -126,10 +126,11 @@ async def ainvoke_grade_documents_step(
         logger.error(f"LLM grading failed: {e}, falling back to heuristic")
         # Fallback to simple heuristic if LLM fails
         is_relevant = len(context.strip()) > 50
+        score = 1.0 if is_relevant else 0.0
         grading_result = GradingResult(
             document_id="retrieved_docs",
             is_relevant=is_relevant,
-            score=1.0 if is_relevant else 0.0,
+            score=score,
             reasoning=f"Fallback heuristic (LLM failed): {'sufficient content' if is_relevant else 'insufficient content'}",
         )
 

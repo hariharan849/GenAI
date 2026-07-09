@@ -74,24 +74,86 @@ def save_nuke_pages_to_db(pages: list[dict]) -> dict:
 
 
 @task(
-    name="index_nuke_docs",
+    name="index_prepare_batches",
     retries=1,
     retry_delay_seconds=600,
-    timeout_seconds=1200,  # 20 min
-    description="Chunk, embed, and bulk-index unindexed Nuke pages into OpenSearch",
+    timeout_seconds=300,  # 5 min
+    description="Calculate dynamic indexing batches for parallel execution",
 )
-def index_nuke_docs(save_stats: dict) -> dict:
-    from nuke_ingestion.indexing import index_nuke_docs_ray
+def index_prepare_batches(save_stats: dict) -> dict:
+    from nuke_ingestion.indexing import index_nuke_docs_dynamic
 
     logger = get_run_logger()
-    logger.info("Indexing unindexed Nuke pages from PostgreSQL into OpenSearch via Ray Data")
+    logger.info("Preparing dynamic indexing batches for unindexed Nuke pages")
 
-    stats = index_nuke_docs_ray()
+    batch_metadata = index_nuke_docs_dynamic()
 
     logger.info(
-        f"Indexed {stats.get('pages_indexed', 0)} pages, "
+        f"Prepared {batch_metadata.get('num_batches', 0)} indexing batches "
+        f"for {batch_metadata.get('num_pages', 0)} pages"
+    )
+    return batch_metadata
+
+
+@task(
+    name="index_nuke_docs_batch",
+    task_run_name="index_batch_{batch_id}",
+    retries=1,
+    retry_delay_seconds=600,
+    timeout_seconds=1500,  # 25 min
+    description="Chunk, embed, and bulk-index one dynamic Nuke page batch",
+)
+def index_nuke_docs_batch_task(batch: dict, batch_id: int) -> dict:
+    from nuke_ingestion.indexing import index_nuke_docs_batch
+
+    logger = get_run_logger()
+    page_ids = batch.get("page_ids", [])
+    logger.info(f"Indexing batch {batch_id} with {len(page_ids)} pages")
+
+    stats = index_nuke_docs_batch(page_ids, batch_id)
+
+    logger.info(
+        f"Batch {batch_id} indexed {stats.get('pages_indexed', 0)} pages, "
         f"{stats.get('chunks_indexed', 0)} chunks"
     )
+    return stats
+
+
+@task(
+    name="index_finalize",
+    timeout_seconds=300,
+    description="Aggregate parallel indexing batch results",
+)
+def index_finalize(batch_results: list[dict], batch_metadata: dict) -> dict:
+    logger = get_run_logger()
+
+    if not batch_metadata or batch_metadata.get("num_batches", 0) == 0:
+        logger.info("No indexing batches to finalize")
+        return {
+            "pages_indexed": 0,
+            "chunks_indexed": 0,
+            "error_page_ids": [],
+            "indexed_page_ids": [],
+        }
+
+    total_pages_indexed = 0
+    total_chunks_indexed = 0
+    error_page_ids: set[str] = set()
+    indexed_page_ids: list[str] = []
+
+    for result in batch_results:
+        total_pages_indexed += result.get("pages_indexed", 0)
+        total_chunks_indexed += result.get("chunks_indexed", 0)
+        error_page_ids.update(result.get("error_page_ids", []))
+        indexed_page_ids.extend(result.get("indexed_page_ids", []))
+
+    stats = {
+        "pages_indexed": total_pages_indexed,
+        "chunks_indexed": total_chunks_indexed,
+        "error_page_ids": sorted(error_page_ids),
+        "indexed_page_ids": indexed_page_ids,
+    }
+    logger.info(f"Index finalization stats: {stats}")
     return stats
 
 
@@ -141,7 +203,13 @@ def generate_nuke_report(save_stats: dict, index_stats: dict, kg_stats: dict) ->
 def nuke_docs_ingestion_flow() -> dict:
     pages = scrape_nuke_docs()
     save_stats = save_nuke_pages_to_db(pages)
-    index_stats = index_nuke_docs(save_stats)
+    batch_metadata = index_prepare_batches(save_stats)
+    batch_futures = [
+        index_nuke_docs_batch_task.submit(batch, batch["batch_id"])
+        for batch in batch_metadata.get("batches", [])
+    ]
+    batch_results = [future.result() for future in batch_futures]
+    index_stats = index_finalize(batch_results, batch_metadata)
     kg_stats = extract_nuke_kg(index_stats)
     report = generate_nuke_report(save_stats, index_stats, kg_stats)
     return report

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
-import { CopilotKit } from "@copilotkit/react-core";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Nuke Docs Assistant",
@@ -15,9 +16,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <CopilotKit runtimeUrl="/api/copilotkit">
-          {children}
-        </CopilotKit>
+        <Script
+          src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"
+          strategy="afterInteractive"
+        />
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 # Prefect Orchestrator
 
-Prefect-based ingestion pipeline for Nuke documentation. Mirrors the Airflow DAG as a Prefect flow with a worker deployment.
+Prefect-based ingestion pipeline for Nuke documentation. Mirrors the Airflow DAG as a Prefect flow with dynamic indexing batch task runs and a worker deployment.
 
 ---
 

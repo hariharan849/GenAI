@@ -1,6 +1,6 @@
 # Dagster Orchestrator
 
-Software-defined asset pipeline for Nuke documentation ingestion. Each ingestion step is a Dagster asset, enabling lineage tracking and incremental materialization.
+Software-defined asset pipeline for Nuke documentation ingestion. Assets remain available for lineage tracking, and the main `nuke_docs_ingestion` job uses dynamic indexing batch ops for visible fan-out.
 
 ---
 
@@ -38,10 +38,16 @@ dagster/
 |-------|-------------|
 | `scraped_nuke_pages` | Crawls Nuke 17.0 reference guide and returns raw page data |
 | `saved_nuke_pages` | Upserts scraped pages into PostgreSQL |
-| `indexed_nuke_docs` | Chunks, embeds (Jina), and indexes into OpenSearch |
+| `indexed_nuke_docs` | Prepares batches, chunks, embeds (Jina), and indexes into OpenSearch |
 | `nuke_ingestion_report` | Summary statistics for the ingestion run |
 
-All assets are grouped under the `nuke_ingestion` asset group and wired into the `nuke_docs_ingestion` job in `definitions.py`.
+All assets are grouped under the `nuke_ingestion` asset group. The `nuke_docs_ingestion` job in `definitions.py` runs the same pipeline with dynamic `index_nuke_docs_batch[batch_N]` ops and an `index_finalize` reducer.
+
+---
+
+## Running the Dynamic Job
+
+From the Dagster UI at `http://localhost:3002`, launch the `nuke_docs_ingestion` job to see batch indexing fan out as dynamic mapped ops.
 
 ---
 
