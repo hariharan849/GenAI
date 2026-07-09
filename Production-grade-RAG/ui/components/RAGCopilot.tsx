@@ -45,7 +45,7 @@ export function RAGCopilot() {
       },
     ],
     handler: async ({ query, size = 5 }: { query: string; size?: number }) => {
-      const res = await fetch(`${API_BASE}/api/v1/hybrid-search/`, {
+      const res = await fetch(`${API_BASE}/api/v1/hybrid-search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

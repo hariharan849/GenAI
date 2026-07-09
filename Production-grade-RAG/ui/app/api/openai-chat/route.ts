@@ -10,7 +10,7 @@ const ALLOWED_SOURCES = ["nuke"] as const;
 type KnowledgeSource = (typeof ALLOWED_SOURCES)[number];
 
 const FASTAPI_ROUTES: Record<string, string> = {
-  search_docs: "/api/v1/hybrid-search/",
+  search_docs: "/api/v1/hybrid-search",
   ask_question: "/api/v1/ask",
   ask_agentic: "/api/v1/ask-agentic",
 };

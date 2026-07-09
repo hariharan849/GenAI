@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { RAGCopilot } from "@/components/RAGCopilot";
-import { OpenAIChat } from "@/components/OpenAIChat";
+import { ChatKitPanel } from "@/components/ChatKitPanel";
 
 type ChatProvider = "copilotkit" | "chatkit";
 
@@ -15,7 +15,7 @@ const PROVIDERS: { id: ChatProvider; label: string; description: string }[] = [
   {
     id: "chatkit",
     label: "ChatKit",
-    description: "Inline OpenAI Responses API chat with tool-calling over the Nuke docs.",
+    description: "Embedded OpenAI ChatKit experience backed by a ChatKit workflow.",
   },
 ];
 
@@ -25,7 +25,7 @@ export default function Home() {
 
   return (
     <>
-      <main className="main-content">
+      <main className="main-content assistant-panel-open">
         <div className="home-header">
           <div className="hero">
             <h1>Nuke Docs Assistant</h1>
@@ -34,25 +34,24 @@ export default function Home() {
               hybrid semantic + keyword search and agentic multi-step reasoning.
             </p>
           </div>
-          <a href="/eval" className="eval-link">Eval Console</a>
-        </div>
-
-        <div className="provider-picker-section">
-          <p className="provider-picker-label">Chat provider</p>
-          <div className="provider-picker" role="group" aria-label="Chat provider">
-            {PROVIDERS.map((provider) => (
-              <button
-                key={provider.id}
-                className={`source-btn ${chatProvider === provider.id ? "active" : ""}`}
-                type="button"
-                onClick={() => setChatProvider(provider.id)}
-              >
-                {provider.label}
-              </button>
-            ))}
+          <div className="home-actions">
+            <div className="provider-switch" role="group" aria-label="Chat provider">
+              {PROVIDERS.map((provider) => (
+                <button
+                  key={provider.id}
+                  aria-pressed={chatProvider === provider.id}
+                  className={`provider-switch-btn ${chatProvider === provider.id ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setChatProvider(provider.id)}
+                >
+                  {provider.label}
+                </button>
+              ))}
+            </div>
+            <a href="/eval" className="eval-link">Eval Console</a>
           </div>
-          <p className="provider-picker-desc">{activeProvider?.description}</p>
         </div>
+        <p className="provider-picker-desc">{activeProvider?.description}</p>
 
         <div className="capabilities">
           <div className="capability-card">
@@ -68,10 +67,9 @@ export default function Home() {
             <p>Multi-step reasoning with query rewriting, document grading, and guardrails.</p>
           </div>
         </div>
-
-        {chatProvider === "chatkit" && <OpenAIChat knowledgeSource="nuke" />}
       </main>
 
+      {chatProvider === "chatkit" && <ChatKitPanel />}
       {chatProvider === "copilotkit" && <RAGCopilot />}
     </>
   );

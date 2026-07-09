@@ -29,6 +29,14 @@ NUKE_INDEX = "nuke-docs-chunks"
 # Parallelization constants
 DEFAULT_NUM_PODS = 4  # Fixed parallelism level for K8s pod distribution
 MIN_BATCH_SIZE = 5    # Minimum pages per batch to avoid excessive pod overhead
+RAY_OBJECT_STORE_MEMORY_BYTES = 500_000_000
+RAY_NUM_CPUS = 2
+RAY_EMBED_BATCH_SIZE = 32
+RAY_EMBED_CONCURRENCY = 1
+RAY_EMBED_NUM_CPUS = 2
+RAY_BULK_BATCH_SIZE = 200
+RAY_BULK_CONCURRENCY = 1
+RAY_BULK_NUM_CPUS = 1
 
 NUKE_INDEX_MAPPING = {
     "settings": {"index": {"knn": True}},
@@ -108,6 +116,112 @@ def _calculate_batches(pages: list[dict], num_pods: int = DEFAULT_NUM_PODS) -> l
         len(pages), len(batches), len(pages) / len(batches) if batches else 0
     )
     return batches
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %d", name, raw, default)
+        return default
+    if value < minimum:
+        logger.warning("%s=%d is below minimum %d; using default %d", name, value, minimum, default)
+        return default
+    return value
+
+
+def _configure_ray_memory_monitor_env() -> None:
+    """Map project-specific env vars to Ray's process-start memory monitor vars."""
+    threshold = os.environ.get("RAG_RAY_MEMORY_USAGE_THRESHOLD")
+    if threshold and "RAY_memory_usage_threshold" not in os.environ:
+        os.environ["RAY_memory_usage_threshold"] = threshold
+
+    refresh_ms = os.environ.get("RAG_RAY_MEMORY_MONITOR_REFRESH_MS")
+    if refresh_ms and "RAY_memory_monitor_refresh_ms" not in os.environ:
+        os.environ["RAY_memory_monitor_refresh_ms"] = refresh_ms
+
+
+@dataclass(frozen=True)
+class _RayIndexingOptions:
+    object_store_memory: int
+    num_cpus: int
+    embed_batch_size: int
+    embed_concurrency: int
+    embed_num_cpus: int
+    bulk_batch_size: int
+    bulk_concurrency: int
+    bulk_num_cpus: int
+
+
+def _ray_indexing_options() -> _RayIndexingOptions:
+    """Runtime tuning for Ray Data indexing in memory-constrained Airflow pods."""
+    return _RayIndexingOptions(
+        object_store_memory=_env_int("RAG_RAY_OBJECT_STORE_MEMORY_BYTES", RAY_OBJECT_STORE_MEMORY_BYTES),
+        num_cpus=_env_int("RAG_RAY_NUM_CPUS", RAY_NUM_CPUS),
+        embed_batch_size=_env_int("RAG_RAY_EMBED_BATCH_SIZE", RAY_EMBED_BATCH_SIZE),
+        embed_concurrency=_env_int("RAG_RAY_EMBED_CONCURRENCY", RAY_EMBED_CONCURRENCY),
+        embed_num_cpus=_env_int("RAG_RAY_EMBED_NUM_CPUS", RAY_EMBED_NUM_CPUS),
+        bulk_batch_size=_env_int("RAG_RAY_BULK_BATCH_SIZE", RAY_BULK_BATCH_SIZE),
+        bulk_concurrency=_env_int("RAG_RAY_BULK_CONCURRENCY", RAY_BULK_CONCURRENCY),
+        bulk_num_cpus=_env_int("RAG_RAY_BULK_NUM_CPUS", RAY_BULK_NUM_CPUS),
+    )
+
+
+def _ray_worker_env() -> dict[str, str]:
+    # Ray local workers are fresh OS processes. They inherit the parent's environment
+    # but runtime_env["env_vars"] is applied on top. Explicitly forwarding the full
+    # environment ensures JINA_API_KEY and other secrets loaded via docker-compose
+    # env_file reach workers, and overrides PYTHONPATH to include the dags directory
+    # (Airflow adds this to sys.path at runtime; workers don't get that treatment).
+    _dags_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _existing_pythonpath = os.environ.get("PYTHONPATH", "")
+    worker_env = dict(os.environ)
+    worker_env["PYTHONPATH"] = ":".join(filter(None, [_dags_dir, _existing_pythonpath]))
+    return worker_env
+
+
+def _init_ray_for_indexing(ray_module, options: _RayIndexingOptions) -> None:
+    _configure_ray_memory_monitor_env()
+    ray_module.init(
+        ignore_reinit_error=True,
+        log_to_driver=True,
+        object_store_memory=options.object_store_memory,
+        num_cpus=options.num_cpus,
+        runtime_env={"env_vars": _ray_worker_env()},
+    )
+
+
+def _run_ray_indexing_pipeline(ray_module, pages_data: list[dict], options: _RayIndexingOptions) -> list[dict]:
+    logger.info(
+        "Ray Data pipeline: %d pages -> chunk -> embed "
+        "(batch_size=%d, concurrency=%d, num_cpus=%d) -> index "
+        "(batch_size=%d, concurrency=%d, num_cpus=%d)",
+        len(pages_data),
+        options.embed_batch_size,
+        options.embed_concurrency,
+        options.embed_num_cpus,
+        options.bulk_batch_size,
+        options.bulk_concurrency,
+        options.bulk_num_cpus,
+    )
+    ds = ray_module.data.from_items(pages_data)
+    chunks_ds = ds.flat_map(_chunk_page_remote)
+    embedded_ds = chunks_ds.map_batches(
+        _embed_batch_remote,
+        batch_size=options.embed_batch_size,
+        concurrency=options.embed_concurrency,
+        num_cpus=options.embed_num_cpus,
+    )
+    result_ds = embedded_ds.map_batches(
+        _os_bulk_remote,
+        batch_size=options.bulk_batch_size,
+        concurrency=options.bulk_concurrency,
+        num_cpus=options.bulk_num_cpus,
+    )
+    return result_ds.take_all()
 
 
 def _make_langchain_splitter(chunk_size: int = 600, chunk_overlap: int = 100) -> RecursiveCharacterTextSplitter:
@@ -408,7 +522,7 @@ def _load_unindexed_pages_from_db(batch_page_ids: list[str] | None = None) -> li
         if batch_page_ids:
             batch_set = set(batch_page_ids)
             pages = [p for p in pages if p["id"] in batch_set]
-            logger.info("Filtered %d unindexed pages to batch of %d", len([p for r in rows]), len(pages))
+            logger.info("Filtered %d unindexed pages to batch of %d", len([r for r in rows]), len(pages))
 
         return pages
 
@@ -560,24 +674,8 @@ def index_nuke_docs_ray(**context) -> dict:
     """
     import ray
 
-    # Ray local workers are fresh OS processes. They inherit the parent's environment
-    # but runtime_env["env_vars"] is applied on top. Explicitly forwarding the full
-    # environment ensures JINA_API_KEY and other secrets loaded via docker-compose
-    # env_file reach workers, and overrides PYTHONPATH to include the dags directory
-    # (Airflow adds this to sys.path at runtime — workers don't get that treatment).
-    _dags_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _existing_pythonpath = os.environ.get("PYTHONPATH", "")
-    _worker_env = dict(os.environ)
-    _worker_env["PYTHONPATH"] = ":".join(filter(None, [_dags_dir, _existing_pythonpath]))
-
-    # Cap object store at 500MB — prevents OOM inside Celery/Prefect/Dagster worker
-    # containers where Docker memory limits may be set by the administrator.
-    ray.init(
-        ignore_reinit_error=True,
-        log_to_driver=True,
-        object_store_memory=500_000_000,
-        runtime_env={"env_vars": _worker_env},
-    )
+    options = _ray_indexing_options()
+    _init_ray_for_indexing(ray, options)
 
     # Ensure the index exists with the correct knn_vector mapping before bulk indexing.
     # OpenSearch auto-creates indices with dynamic mappings (no HNSW) — vector search
@@ -597,18 +695,11 @@ def index_nuke_docs_ray(**context) -> dict:
         ray.shutdown()
         return {"pages_indexed": 0, "chunks_indexed": 0, "indexed_page_ids": []}
 
-    logger.info("Ray Data pipeline: %d pages → chunk → embed (concurrency=3) → index", len(pages_data))
-
     try:
-        ds = ray.data.from_items(pages_data)
-        chunks_ds = ds.flat_map(_chunk_page_remote)
-        embedded_ds = chunks_ds.map_batches(_embed_batch_remote, batch_size=100, concurrency=3)
-        result_ds = embedded_ds.map_batches(_os_bulk_remote, batch_size=500, concurrency=1)
-
         # Collect results once — take_all() triggers execution and returns all rows.
         # Using take_all() instead of .sum() so we can also collect error_page_ids
         # without re-executing the pipeline a second time.
-        result_rows = result_ds.take_all()
+        result_rows = _run_ray_indexing_pipeline(ray, pages_data, options)
     finally:
         ray.shutdown()
 
@@ -676,18 +767,9 @@ def index_nuke_docs_batch(batch_page_ids: list[str], batch_id: int, **context) -
 
     logger.info("Batch %d: Starting indexing of %d pages", batch_id, len(batch_page_ids))
 
-    # Each pod initializes its own Ray cluster
-    _dags_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _existing_pythonpath = os.environ.get("PYTHONPATH", "")
-    _worker_env = dict(os.environ)
-    _worker_env["PYTHONPATH"] = ":".join(filter(None, [_dags_dir, _existing_pythonpath]))
-
-    ray.init(
-        ignore_reinit_error=True,
-        log_to_driver=True,
-        object_store_memory=500_000_000,
-        runtime_env={"env_vars": _worker_env},
-    )
+    # Each pod initializes its own Ray cluster.
+    options = _ray_indexing_options()
+    _init_ray_for_indexing(ray, options)
 
     try:
         # Load pages for this batch from DB
@@ -712,18 +794,8 @@ def index_nuke_docs_batch(batch_page_ids: list[str], batch_id: int, **context) -
         else:
             make_search_client_fresh(settings).setup_indices(force=False)
 
-        logger.info(
-            "Batch %d: Ray Data pipeline: %d pages → chunk → embed (concurrency=3) → index",
-            batch_id, len(pages_data)
-        )
-
         # Run Ray Data pipeline for this batch (no global concurrency; K8s provides parallelism)
-        ds = ray.data.from_items(pages_data)
-        chunks_ds = ds.flat_map(_chunk_page_remote)
-        embedded_ds = chunks_ds.map_batches(_embed_batch_remote, batch_size=100, concurrency=3)
-        result_ds = embedded_ds.map_batches(_os_bulk_remote, batch_size=500, concurrency=1)
-
-        result_rows = result_ds.take_all()
+        result_rows = _run_ray_indexing_pipeline(ray, pages_data, options)
 
         total_indexed = sum(row["indexed"] for row in result_rows)
         error_page_ids_set: set[str] = set()

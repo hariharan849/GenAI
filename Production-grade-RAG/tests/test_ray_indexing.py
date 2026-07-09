@@ -4,9 +4,10 @@ Tests cover the three pure stateless operators and the empty-pages fast-path.
 Each test mocks its IO boundaries (DB, Jina API, OpenSearch) so no running
 services are required.
 """
+import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
 
 import numpy as np
@@ -16,9 +17,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "orchestrators" / "airflow" / "dags"))
 
 from nuke_ingestion.indexing import (
+    _RayIndexingOptions,
     _chunk_page_remote,
+    _configure_ray_memory_monitor_env,
     _embed_batch_remote,
     _os_bulk_remote,
+    _ray_indexing_options,
+    _run_ray_indexing_pipeline,
     index_nuke_docs_ray,
 )
 
@@ -119,6 +124,7 @@ def test_embed_batch_remote_adds_float32_embedding():
     fake_embeddings = [[0.1] * 1024, [0.2] * 1024]
     mock_client = MagicMock()
     mock_client.embed_passages = MagicMock(return_value=fake_embeddings)
+    mock_client.close = AsyncMock()
 
     # asyncio.run calls embed_passages as a coroutine — wrap in coroutine mock
     import asyncio
@@ -128,13 +134,91 @@ def test_embed_batch_remote_adds_float32_embedding():
 
     mock_client.embed_passages = _async_embed
 
-    with patch("api.services.embeddings.factory.make_embeddings_client", return_value=mock_client):
+    with patch("nuke_ingestion.indexing.make_embeddings_client", return_value=mock_client):
         result = _embed_batch_remote(batch)
 
     assert "embedding" in result
     assert isinstance(result["embedding"], np.ndarray)
     assert result["embedding"].dtype == np.float32
     assert result["embedding"].shape == (2, 1024)
+
+
+def test_ray_indexing_options_reads_env(monkeypatch):
+    monkeypatch.setenv("RAG_RAY_OBJECT_STORE_MEMORY_BYTES", "123456789")
+    monkeypatch.setenv("RAG_RAY_NUM_CPUS", "6")
+    monkeypatch.setenv("RAG_RAY_EMBED_BATCH_SIZE", "16")
+    monkeypatch.setenv("RAG_RAY_EMBED_CONCURRENCY", "2")
+    monkeypatch.setenv("RAG_RAY_EMBED_NUM_CPUS", "4")
+    monkeypatch.setenv("RAG_RAY_BULK_BATCH_SIZE", "64")
+    monkeypatch.setenv("RAG_RAY_BULK_CONCURRENCY", "1")
+    monkeypatch.setenv("RAG_RAY_BULK_NUM_CPUS", "2")
+
+    options = _ray_indexing_options()
+
+    assert options.object_store_memory == 123456789
+    assert options.num_cpus == 6
+    assert options.embed_batch_size == 16
+    assert options.embed_concurrency == 2
+    assert options.embed_num_cpus == 4
+    assert options.bulk_batch_size == 64
+    assert options.bulk_concurrency == 1
+    assert options.bulk_num_cpus == 2
+
+
+def test_configure_ray_memory_monitor_env_uses_prefixed_overrides(monkeypatch):
+    monkeypatch.delenv("RAY_memory_usage_threshold", raising=False)
+    monkeypatch.delenv("RAY_memory_monitor_refresh_ms", raising=False)
+    monkeypatch.setenv("RAG_RAY_MEMORY_USAGE_THRESHOLD", "0.98")
+    monkeypatch.setenv("RAG_RAY_MEMORY_MONITOR_REFRESH_MS", "0")
+
+    _configure_ray_memory_monitor_env()
+
+    assert os.environ["RAY_memory_usage_threshold"] == "0.98"
+    assert os.environ["RAY_memory_monitor_refresh_ms"] == "0"
+
+
+def test_run_ray_indexing_pipeline_applies_memory_safe_map_batch_options():
+    class FakeDataset:
+        def __init__(self):
+            self.map_batches_calls = []
+
+        def flat_map(self, fn):
+            self.flat_map_fn = fn
+            return self
+
+        def map_batches(self, fn, **kwargs):
+            self.map_batches_calls.append((fn, kwargs))
+            return self
+
+        def take_all(self):
+            return [{"indexed": 1, "error_page_ids": ""}]
+
+    dataset = FakeDataset()
+    fake_ray = SimpleNamespace(data=SimpleNamespace(from_items=MagicMock(return_value=dataset)))
+    options = _RayIndexingOptions(
+        object_store_memory=500_000_000,
+        num_cpus=2,
+        embed_batch_size=16,
+        embed_concurrency=1,
+        embed_num_cpus=3,
+        bulk_batch_size=128,
+        bulk_concurrency=1,
+        bulk_num_cpus=2,
+    )
+
+    rows = _run_ray_indexing_pipeline(fake_ray, [{"id": "page-1"}], options)
+
+    assert rows == [{"indexed": 1, "error_page_ids": ""}]
+    assert dataset.map_batches_calls[0][1] == {
+        "batch_size": 16,
+        "concurrency": 1,
+        "num_cpus": 3,
+    }
+    assert dataset.map_batches_calls[1][1] == {
+        "batch_size": 128,
+        "concurrency": 1,
+        "num_cpus": 2,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -290,4 +374,5 @@ def test_index_nuke_docs_ray_empty_pages():
         result = index_nuke_docs_ray()
 
     assert result == {"pages_indexed": 0, "chunks_indexed": 0, "indexed_page_ids": []}
+    assert mock_ray.init.call_args.kwargs["num_cpus"] == 2
     mock_ray.shutdown.assert_called_once()

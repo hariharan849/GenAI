@@ -90,6 +90,16 @@ x-airflow-common:
     AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
     AIRFLOW__METRICS__STATSD_PORT: '9125'
     AIRFLOW__METRICS__STATSD_PREFIX: airflow
+    RAG_RAY_NUM_CPUS: ${RAG_RAY_NUM_CPUS:-2}
+    RAG_RAY_OBJECT_STORE_MEMORY_BYTES: ${RAG_RAY_OBJECT_STORE_MEMORY_BYTES:-500000000}
+    RAG_RAY_EMBED_BATCH_SIZE: ${RAG_RAY_EMBED_BATCH_SIZE:-32}
+    RAG_RAY_EMBED_CONCURRENCY: ${RAG_RAY_EMBED_CONCURRENCY:-1}
+    RAG_RAY_EMBED_NUM_CPUS: ${RAG_RAY_EMBED_NUM_CPUS:-2}
+    RAG_RAY_BULK_BATCH_SIZE: ${RAG_RAY_BULK_BATCH_SIZE:-200}
+    RAG_RAY_BULK_CONCURRENCY: ${RAG_RAY_BULK_CONCURRENCY:-1}
+    RAG_RAY_BULK_NUM_CPUS: ${RAG_RAY_BULK_NUM_CPUS:-1}
+    RAG_RAY_MEMORY_USAGE_THRESHOLD: ${RAG_RAY_MEMORY_USAGE_THRESHOLD:-0.95}
+  shm_size: ${AIRFLOW_SHM_SIZE:-1gb}
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/orchestrators/airflow/logs:/opt/airflow/logs
@@ -832,6 +842,9 @@ services:
     environment:
       - CORS_ORIGINS=["http://localhost","http://localhost:3002","http://localhost:3000"]
       - SEARCH__BACKEND=${SEARCH__BACKEND:-postgres_embedding}
+      # Local compose does not provision the Ollama Llama Guard model.
+      # Set GUARDRAILS__LLAMA_GUARD_ENABLED=true after pulling the model.
+      - GUARDRAILS__LLAMA_GUARD_ENABLED=${GUARDRAILS__LLAMA_GUARD_ENABLED:-false}
     ports:
       - "8083:8000"
     depends_on:
