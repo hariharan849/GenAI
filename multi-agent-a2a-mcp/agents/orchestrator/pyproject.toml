@@ -1,0 +1,34 @@
+[project]
+name = "orchestrator-builder-agent"
+version = "0.1.0"
+description = "Orchestrator microservice agent"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "a2a-sdk[http-server]==0.3.*",
+    "fastapi==0.124.*",
+    "uvicorn==0.40.0",
+    "pydantic>=2.0,<3.0",
+    "httpx>=0.28,<1.0",
+    "google-auth>=2.0,<3.0",
+    "langgraph>=0.3,<1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "../.."]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["coordinator_service"]

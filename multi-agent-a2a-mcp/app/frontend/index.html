@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Course Creator - Build a Course in Minutes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="landing-page">
+    <div class="container">
+        <header><div class="logo">AI Course Creator</div></header>
+        <main class="hero-section">
+            <h1>Turn any topic into a complete course.</h1>
+            <p class="subtitle">Enter a topic. We will research and fact-check a learning path before asking whether it fits you.</p>
+            <form id="create-form" class="hero-form" novalidate>
+                <label for="topic-input">What do you want to learn?</label>
+                <input type="text" id="topic-input" placeholder="For example: Python asyncio" autocomplete="off" required maxlength="500">
+                <button type="submit" id="create-button"><span>Build my learning path</span></button>
+            </form>
+            <section id="path-container" class="progress-container hidden" aria-labelledby="path-title">
+                <h2 id="path-title">Your learning path</h2>
+                <div id="path-content"></div>
+                <p class="approval-question">Does this match your current understanding and learning goal?</p>
+                <label for="feedback-input">Feedback <span>(optional)</span></label>
+                <textarea id="feedback-input" maxlength="4000" placeholder="Tell us what to adjust, and we’ll research it again."></textarea>
+                <div class="path-actions">
+                    <button id="feedback-button" type="button">Send feedback</button>
+                    <button id="approve-button" type="button">I agree</button>
+                </div>
+            </section>
+            <div id="progress-container" class="progress-container hidden">
+                <div class="agent-status"><div class="status-icon"><div class="spinner"></div></div><div id="status-text" class="status-text">Initializing AI squad...</div></div>
+                <div class="progress-steps">
+                    <div class="step" id="step-researcher"><div class="step-icon">Research</div><div class="step-label">Researching</div></div>
+                    <div class="step" id="step-judge"><div class="step-icon">Review</div><div class="step-label">Fact-checking</div></div>
+                    <div class="step" id="step-builder"><div class="step-icon">Write</div><div class="step-label">Writing</div></div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
